@@ -19,3 +19,16 @@ class StealthPanel: NSPanel {
         return true
     }
 }
+
+class StealthTitleBarView: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.windowBackgroundColor.withAlphaComponent(0.95).setFill()
+        dirtyRect.fill()
+    }
+
+    // Drag reliability fix: forward mouse down into native window dragging.
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
+    }
+}
