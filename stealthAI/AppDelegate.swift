@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var tabsScrollView: NSScrollView!
     private var tabsButtonsContainer: NSView!
     private var settingsButton: NSButton!
+    private var blurOverlayView: ClickThroughVisualEffectView!
     private var tabButtons: [NSButton] = []
     private var webViews: [WKWebView] = []
     private var activeWebView: WKWebView?
@@ -24,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let minWindowAlpha: CGFloat = 0.55
     private let maxWindowAlpha: CGFloat = 1.0
     private let windowAlphaStep: CGFloat = 0.05
+    private let blurOverlayOpacity: CGFloat = 0.24
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         settingsStore.ensureDefaults()
@@ -104,7 +106,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             height: contentView.bounds.height - titleBarHeight
         ))
         tabContainerView.autoresizingMask = [.width, .height]
+
+        blurOverlayView = ClickThroughVisualEffectView(frame: tabContainerView.bounds)
+        blurOverlayView.autoresizingMask = [.width, .height]
+        blurOverlayView.blendingMode = .withinWindow
+        blurOverlayView.material = .hudWindow
+        blurOverlayView.state = .active
+        blurOverlayView.alphaValue = blurOverlayOpacity
+
         contentView.addSubview(tabContainerView)
+        tabContainerView.addSubview(blurOverlayView)
     }
 
     private func loadTabsFromSettings() {
@@ -208,7 +219,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if activeWebView !== nextWebView {
             activeWebView?.removeFromSuperview()
             nextWebView.frame = tabContainerView.bounds
-            tabContainerView.addSubview(nextWebView)
+            tabContainerView.addSubview(nextWebView, positioned: .below, relativeTo: blurOverlayView)
             activeWebView = nextWebView
         }
 
@@ -229,11 +240,50 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let config = WKWebViewConfiguration()
         config.processPool = sharedProcessPool
         config.websiteDataStore = .default()
+        config.userContentController.addUserScript(makeStealthUserScript())
 
         let webView = WKWebView(frame: tabContainerView.bounds, configuration: config)
-        // Keep page rendering opaque; the panel itself still supports transparency via alpha.
-        webView.setValue(true, forKey: "drawsBackground")
+        webView.setValue(false, forKey: "drawsBackground")
         return webView
+    }
+
+    private func makeStealthUserScript() -> WKUserScript {
+        let source = """
+        (() => {
+            if (window.__stealthAIInjected) return;
+            window.__stealthAIInjected = true;
+
+            const style = document.createElement('style');
+            style.id = 'stealthai-style';
+            style.textContent = `
+                html, body {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                }
+                *, *::before, *::after {
+                    animation: none !important;
+                    transition-property: none !important;
+                    transition-duration: 0s !important;
+                    transition-delay: 0s !important;
+                    scroll-behavior: auto !important;
+                }
+            `;
+
+            if (document.documentElement) {
+                document.documentElement.style.background = 'transparent';
+                document.documentElement.style.backgroundColor = 'transparent';
+                document.documentElement.appendChild(style);
+            } else {
+                document.addEventListener('DOMContentLoaded', () => {
+                    document.documentElement.style.background = 'transparent';
+                    document.documentElement.style.backgroundColor = 'transparent';
+                    document.documentElement.appendChild(style);
+                }, { once: true });
+            }
+        })();
+        """
+
+        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
     }
 
     @objc private func openSettings() {
