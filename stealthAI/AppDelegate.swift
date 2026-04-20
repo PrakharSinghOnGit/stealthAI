@@ -1,6 +1,6 @@
+import Carbon.HIToolbox
 import Cocoa
 import WebKit
-import Carbon.HIToolbox
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
@@ -22,9 +22,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
 
     private let settingsStore = AppSettingsStore.shared
     private let titleBarHeight: CGFloat = 42
-    private let minWindowAlpha: CGFloat = 0.55
+    private let minWindowAlpha: CGFloat = 0.01
     private let maxWindowAlpha: CGFloat = 1.0
-    private let windowAlphaStep: CGFloat = 0.05
+    private let windowAlphaStep: CGFloat = 0.01
     private let minBlurOverlayOpacity: CGFloat = 0.0
     private let maxBlurOverlayOpacity: CGFloat = 0.65
     private let blurOverlayStep: CGFloat = 0.04
@@ -80,13 +80,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
 
     private func buildUI() {
         guard let contentView = panel.contentView else { return }
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.clear.cgColor
 
-        let titleBar = StealthTitleBarView(frame: NSRect(
-            x: 0,
-            y: contentView.bounds.height - titleBarHeight,
-            width: contentView.bounds.width,
-            height: titleBarHeight
-        ))
+        let titleBar = StealthTitleBarView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.height - titleBarHeight,
+                width: contentView.bounds.width,
+                height: titleBarHeight
+            ))
         titleBar.autoresizingMask = [.width, .minYMargin]
         contentView.addSubview(titleBar)
 
@@ -96,7 +99,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         settingsButton.autoresizingMask = [.minXMargin]
         titleBar.addSubview(settingsButton)
 
-        tabsScrollView = NSScrollView(frame: NSRect(x: 12, y: 8, width: titleBar.bounds.width - 112, height: 26))
+        tabsScrollView = NSScrollView(
+            frame: NSRect(x: 12, y: 8, width: titleBar.bounds.width - 112, height: 26))
         tabsScrollView.autoresizingMask = [.width]
         tabsScrollView.borderType = .noBorder
         tabsScrollView.drawsBackground = false
@@ -104,21 +108,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         tabsScrollView.hasHorizontalScroller = true
         tabsScrollView.autohidesScrollers = true
 
-        tabsButtonsContainer = NSView(frame: NSRect(x: 0, y: 0, width: tabsScrollView.bounds.width, height: 26))
+        tabsButtonsContainer = NSView(
+            frame: NSRect(x: 0, y: 0, width: tabsScrollView.bounds.width, height: 26))
         tabsScrollView.documentView = tabsButtonsContainer
         titleBar.addSubview(tabsScrollView)
 
-        tabContainerView = NSView(frame: NSRect(
-            x: 0,
-            y: 0,
-            width: contentView.bounds.width,
-            height: contentView.bounds.height - titleBarHeight
-        ))
+        tabContainerView = NSView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: contentView.bounds.width,
+                height: contentView.bounds.height - titleBarHeight
+            ))
         tabContainerView.autoresizingMask = [.width, .height]
+        tabContainerView.wantsLayer = true
+        tabContainerView.layer?.backgroundColor = NSColor.clear.cgColor
 
         blurOverlayView = ClickThroughVisualEffectView(frame: tabContainerView.bounds)
         blurOverlayView.autoresizingMask = [.width, .height]
-        blurOverlayView.blendingMode = .withinWindow
+        blurOverlayView.blendingMode = .behindWindow
         blurOverlayView.material = .hudWindow
         blurOverlayView.state = .active
         blurOverlayView.alphaValue = blurOverlayOpacity
@@ -165,7 +173,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         let height: CGFloat = 24
 
         for (idx, label) in labels.enumerated() {
-            let button = NSButton(title: label, target: self, action: #selector(didTapTabButton(_:)))
+            let button = NSButton(
+                title: label, target: self, action: #selector(didTapTabButton(_:)))
             button.setButtonType(.toggle)
             button.bezelStyle = .texturedRounded
             button.tag = idx
@@ -193,11 +202,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         hotKeyManager.register(id: .refreshTab, hotKey: hotkeys.refreshTab) { [weak self] in
             self?.refreshCurrentTab()
         }
-        hotKeyManager.register(id: .decreaseOpacity, hotKey: hotkeys.decreaseOpacity) { [weak self] in
+        hotKeyManager.register(id: .decreaseOpacity, hotKey: hotkeys.decreaseOpacity) {
+            [weak self] in
             guard let self else { return }
             self.adjustTransparency(by: -self.windowAlphaStep)
         }
-        hotKeyManager.register(id: .increaseOpacity, hotKey: hotkeys.increaseOpacity) { [weak self] in
+        hotKeyManager.register(id: .increaseOpacity, hotKey: hotkeys.increaseOpacity) {
+            [weak self] in
             guard let self else { return }
             self.adjustTransparency(by: self.windowAlphaStep)
         }
@@ -209,10 +220,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
             guard let self else { return }
             self.adjustBlur(by: self.blurOverlayStep)
         }
-        hotKeyManager.register(id: .toggleGrayscale, hotKey: hotkeys.toggleGrayscale) { [weak self] in
+        hotKeyManager.register(id: .toggleGrayscale, hotKey: hotkeys.toggleGrayscale) {
+            [weak self] in
             self?.toggleGrayscale()
         }
-        hotKeyManager.register(id: .toggleTransparentBackground, hotKey: hotkeys.toggleTransparentBackground) { [weak self] in
+        hotKeyManager.register(
+            id: .toggleTransparentBackground, hotKey: hotkeys.toggleTransparentBackground
+        ) { [weak self] in
             self?.toggleTransparentBackground()
         }
     }
@@ -224,7 +238,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
     }
 
     private func adjustBlur(by delta: CGFloat) {
-        let next = min(maxBlurOverlayOpacity, max(minBlurOverlayOpacity, blurOverlayOpacity + delta))
+        let next = min(
+            maxBlurOverlayOpacity, max(minBlurOverlayOpacity, blurOverlayOpacity + delta))
         blurOverlayOpacity = next
         blurOverlayView.alphaValue = next
         settingsStore.saveBlurOverlayOpacity(next)
@@ -269,7 +284,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
         if activeWebView !== nextWebView {
             activeWebView?.removeFromSuperview()
             nextWebView.frame = tabContainerView.bounds
-            tabContainerView.addSubview(nextWebView, positioned: .below, relativeTo: blurOverlayView)
+            tabContainerView.addSubview(
+                nextWebView, positioned: .below, relativeTo: blurOverlayView)
             activeWebView = nextWebView
         }
 
@@ -300,73 +316,152 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigati
 
     private func makeStealthUserScript() -> WKUserScript {
         let source = """
-        (() => {
-            if (window.__stealthAIInjected) return;
-            window.__stealthAIInjected = true;
+            (() => {
+                if (window.__stealthAIInjected) return;
+                window.__stealthAIInjected = true;
 
-            const style = document.createElement('style');
-            style.id = 'stealthai-style';
-            style.textContent = `
-                *, *::before, *::after {
-                    animation: none !important;
-                    transition-property: none !important;
-                    transition-duration: 0s !important;
-                    transition-delay: 0s !important;
-                    scroll-behavior: auto !important;
-                }
-            `;
+                const state = {
+                    grayscale: false,
+                    transparentBg: true
+                };
 
-            const state = {
-                grayscale: false,
-                transparentBg: true
-            };
+                const injectBaseStyles = () => {
+                    const style = document.createElement('style');
+                    style.id = 'stealthai-style';
+                    style.textContent = `
+                        *, *::before, *::after {
+                            animation: none !important;
+                            transition-property: none !important;
+                            transition-duration: 0s !important;
+                            transition-delay: 0s !important;
+                            scroll-behavior: auto !important;
+                        }
 
-            const applyState = () => {
-                const dynamicStyle = document.createElement('style');
-                dynamicStyle.textContent = `
-                    html {
-                        filter: ${state.grayscale ? 'grayscale(1)' : 'none'} !important;
-                    }
-                    html, body {
-                        background: ${state.transparentBg ? 'transparent' : '#111'} !important;
-                        background-color: ${state.transparentBg ? 'transparent' : '#111'} !important;
-                    }
-                `;
+                        html, body,
+                        #root, #__next, #app, #main, #content,
+                        [data-reactroot], [id="__nuxt"],
+                        body > div, body > main, body > section {
+                            background: transparent !important;
+                            background-color: transparent !important;
+                            background-image: none !important;
+                        }
 
-                const existing = document.getElementById('stealthai-dynamic-style');
-                if (existing) {
-                    existing.remove();
-                }
+                        :root {
+                            --background: transparent !important;
+                            --bg: transparent !important;
+                            --color-background: transparent !important;
+                            --surface: transparent !important;
+                            --bg-primary: transparent !important;
+                            --background-primary: transparent !important;
+                            --background-secondary: transparent !important;
+                            --surface-primary: transparent !important;
+                            --color-bg: transparent !important;
+                        }
+                    `;
 
-                dynamicStyle.id = 'stealthai-dynamic-style';
-                document.documentElement.appendChild(dynamicStyle);
-            };
-
-            window.__stealthAISetMode = (grayscale, transparentBg) => {
-                state.grayscale = !!grayscale;
-                state.transparentBg = !!transparentBg;
-                applyState();
-            };
-
-            if (document.documentElement) {
-                document.documentElement.appendChild(style);
-                applyState();
-            } else {
-                document.addEventListener('DOMContentLoaded', () => {
                     document.documentElement.appendChild(style);
-                    applyState();
-                }, { once: true });
-            }
-        })();
-        """
+                };
 
-        return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+                const stripBackground = (el) => {
+                    if (!state.transparentBg || !(el instanceof HTMLElement)) return;
+
+                    const cs = window.getComputedStyle(el);
+                    const bg = cs.backgroundColor;
+                    if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') return;
+
+                    el.style.setProperty('background-color', 'transparent', 'important');
+                    el.style.setProperty('background', 'transparent', 'important');
+                    el.style.setProperty('background-image', 'none', 'important');
+                    el.style.setProperty('backdrop-filter', 'none', 'important');
+                };
+
+                const stripKnownContainers = () => {
+                    document.querySelectorAll('body > *, #root, #root > *, #__next, #__next > *, #app, #main, #content').forEach(stripBackground);
+                };
+
+                const observeRoot = () => {
+                    stripKnownContainers();
+
+                    const observer = new MutationObserver((mutations) => {
+                        for (const mutation of mutations) {
+                            for (const node of mutation.addedNodes) {
+                                if (node instanceof HTMLElement) {
+                                    stripBackground(node);
+                                }
+                            }
+                        }
+                    });
+
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: false
+                    });
+                };
+
+                const applyState = () => {
+                    const dynamicStyle = document.createElement('style');
+                    const pageBg = state.transparentBg ? 'transparent' : '#111';
+                    dynamicStyle.textContent = `
+                        html {
+                            filter: ${state.grayscale ? 'grayscale(1)' : 'none'} !important;
+                        }
+                        html, body,
+                        #root, #__next, #app, #main, #content,
+                        [data-reactroot], [id="__nuxt"],
+                        body > div, body > main, body > section {
+                            background: ${pageBg} !important;
+                            background-color: ${pageBg} !important;
+                            background-image: ${state.transparentBg ? 'none' : 'initial'} !important;
+                        }
+                    `;
+
+                    const existing = document.getElementById('stealthai-dynamic-style');
+                    if (existing) {
+                        existing.remove();
+                    }
+
+                    dynamicStyle.id = 'stealthai-dynamic-style';
+                    document.documentElement.appendChild(dynamicStyle);
+
+                    if (state.transparentBg) {
+                        stripKnownContainers();
+                    }
+                };
+
+                window.__stealthAISetMode = (grayscale, transparentBg) => {
+                    state.grayscale = !!grayscale;
+                    state.transparentBg = !!transparentBg;
+                    applyState();
+                };
+
+                if (document.documentElement) {
+                    injectBaseStyles();
+                    applyState();
+
+                    if (document.body) {
+                        observeRoot();
+                    } else {
+                        document.addEventListener('DOMContentLoaded', observeRoot, { once: true });
+                    }
+                } else {
+                    document.addEventListener('DOMContentLoaded', () => {
+                        injectBaseStyles();
+                        applyState();
+                        observeRoot();
+                    }, { once: true });
+                }
+            })();
+            """
+
+        return WKUserScript(
+            source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
     }
 
     private func applyStealthModes(to webView: WKWebView) {
         let grayscaleValue = grayscaleEnabled ? "true" : "false"
         let transparentValue = transparentBackgroundEnabled ? "true" : "false"
-        let script = "window.__stealthAISetMode && window.__stealthAISetMode(\(grayscaleValue), \(transparentValue));"
+        let script =
+            "window.__stealthAISetMode && window.__stealthAISetMode(\(grayscaleValue), \(transparentValue));"
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
@@ -463,7 +558,7 @@ final class AppSettingsStore {
             let defaultTabs: [[String: String]] = [
                 ["title": "ChatGPT", "url": "https://chatgpt.com"],
                 ["title": "Claude", "url": "https://claude.ai"],
-                ["title": "Gemini", "url": "https://gemini.google.com"]
+                ["title": "Gemini", "url": "https://gemini.google.com"],
             ]
             defaults.set(defaultTabs, forKey: tabsKey)
         }
@@ -558,17 +653,24 @@ final class AppSettingsStore {
         let decreaseBlurText = defaults.string(forKey: decreaseBlurHotKeyKey) ?? "cmd+shift+;"
         let increaseBlurText = defaults.string(forKey: increaseBlurHotKeyKey) ?? "cmd+shift+'"
         let grayscaleToggleText = defaults.string(forKey: grayscaleToggleHotKeyKey) ?? "cmd+shift+g"
-        let transparentToggleText = defaults.string(forKey: transparentToggleHotKeyKey) ?? "cmd+shift+t"
+        let transparentToggleText =
+            defaults.string(forKey: transparentToggleHotKeyKey) ?? "cmd+shift+t"
 
         let toggleCombo = KeyComboParser.parse(toggleText) ?? KeyComboParser.defaultToggle
         let switchCombo = KeyComboParser.parse(switchText) ?? KeyComboParser.defaultSwitch
         let refreshCombo = KeyComboParser.parse(refreshText) ?? KeyComboParser.defaultRefreshTab
-        let decreaseCombo = KeyComboParser.parse(decreaseText) ?? KeyComboParser.defaultDecreaseOpacity
-        let increaseCombo = KeyComboParser.parse(increaseText) ?? KeyComboParser.defaultIncreaseOpacity
-        let decreaseBlurCombo = KeyComboParser.parse(decreaseBlurText) ?? KeyComboParser.defaultDecreaseBlur
-        let increaseBlurCombo = KeyComboParser.parse(increaseBlurText) ?? KeyComboParser.defaultIncreaseBlur
-        let grayscaleToggleCombo = KeyComboParser.parse(grayscaleToggleText) ?? KeyComboParser.defaultToggleGrayscale
-        let transparentToggleCombo = KeyComboParser.parse(transparentToggleText) ?? KeyComboParser.defaultToggleTransparent
+        let decreaseCombo =
+            KeyComboParser.parse(decreaseText) ?? KeyComboParser.defaultDecreaseOpacity
+        let increaseCombo =
+            KeyComboParser.parse(increaseText) ?? KeyComboParser.defaultIncreaseOpacity
+        let decreaseBlurCombo =
+            KeyComboParser.parse(decreaseBlurText) ?? KeyComboParser.defaultDecreaseBlur
+        let increaseBlurCombo =
+            KeyComboParser.parse(increaseBlurText) ?? KeyComboParser.defaultIncreaseBlur
+        let grayscaleToggleCombo =
+            KeyComboParser.parse(grayscaleToggleText) ?? KeyComboParser.defaultToggleGrayscale
+        let transparentToggleCombo =
+            KeyComboParser.parse(transparentToggleText) ?? KeyComboParser.defaultToggleTransparent
 
         return HotKeyConfig(
             togglePanel: toggleCombo,
@@ -690,7 +792,7 @@ final class GlobalHotKeyManager {
     func register(id: HotKeyActionID, hotKey: KeyCombo, handler: @escaping () -> Void) {
         unregister(id: id)
 
-        let hotKeyID = EventHotKeyID(signature: OSType(0x53544149), id: id.rawValue)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x5354_4149), id: id.rawValue)
         var ref: EventHotKeyRef?
 
         let status = RegisterEventHotKey(
@@ -726,12 +828,14 @@ final class GlobalHotKeyManager {
     private func installHandlerIfNeeded() {
         guard eventHandler == nil else { return }
 
-        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let status = InstallEventHandler(
             GetEventDispatcherTarget(),
             { _, eventRef, userData in
                 guard let userData else { return OSStatus(eventNotHandledErr) }
-                let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData).takeUnretainedValue()
+                let manager = Unmanaged<GlobalHotKeyManager>.fromOpaque(userData)
+                    .takeUnretainedValue()
                 return manager.handleEvent(eventRef)
             },
             1,
@@ -760,8 +864,9 @@ final class GlobalHotKeyManager {
         )
 
         guard status == noErr,
-              hotKeyID.signature == OSType(0x53544149),
-              let action = HotKeyActionID(rawValue: hotKeyID.id) else {
+            hotKeyID.signature == OSType(0x5354_4149),
+            let action = HotKeyActionID(rawValue: hotKeyID.id)
+        else {
             return OSStatus(eventNotHandledErr)
         }
 
@@ -771,26 +876,52 @@ final class GlobalHotKeyManager {
 }
 
 enum KeyComboParser {
-    static let defaultToggle = KeyCombo(keyCode: UInt32(kVK_Space), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+space")
-    static let defaultSwitch = KeyCombo(keyCode: UInt32(kVK_Tab), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+tab")
-    static let defaultRefreshTab = KeyCombo(keyCode: UInt32(kVK_ANSI_R), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+r")
-    static let defaultDecreaseOpacity = KeyCombo(keyCode: UInt32(kVK_ANSI_LeftBracket), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+[")
-    static let defaultIncreaseOpacity = KeyCombo(keyCode: UInt32(kVK_ANSI_RightBracket), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+]")
-    static let defaultDecreaseBlur = KeyCombo(keyCode: UInt32(kVK_ANSI_Semicolon), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+;")
-    static let defaultIncreaseBlur = KeyCombo(keyCode: UInt32(kVK_ANSI_Quote), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+'")
-    static let defaultToggleGrayscale = KeyCombo(keyCode: UInt32(kVK_ANSI_G), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+g")
-    static let defaultToggleTransparent = KeyCombo(keyCode: UInt32(kVK_ANSI_T), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+t")
+    static let defaultToggle = KeyCombo(
+        keyCode: UInt32(kVK_Space), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+space")
+    static let defaultSwitch = KeyCombo(
+        keyCode: UInt32(kVK_Tab), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+tab")
+    static let defaultRefreshTab = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_R), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+r")
+    static let defaultDecreaseOpacity = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_LeftBracket), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+[")
+    static let defaultIncreaseOpacity = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_RightBracket), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+]")
+    static let defaultDecreaseBlur = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_Semicolon), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+;")
+    static let defaultIncreaseBlur = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_Quote), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+'")
+    static let defaultToggleGrayscale = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_G), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+g")
+    static let defaultToggleTransparent = KeyCombo(
+        keyCode: UInt32(kVK_ANSI_T), carbonModifiers: UInt32(cmdKey | shiftKey),
+        displayValue: "cmd+shift+t")
 
     private static let keyMap: [String: UInt32] = [
-        "a": UInt32(kVK_ANSI_A), "b": UInt32(kVK_ANSI_B), "c": UInt32(kVK_ANSI_C), "d": UInt32(kVK_ANSI_D),
-        "e": UInt32(kVK_ANSI_E), "f": UInt32(kVK_ANSI_F), "g": UInt32(kVK_ANSI_G), "h": UInt32(kVK_ANSI_H),
-        "i": UInt32(kVK_ANSI_I), "j": UInt32(kVK_ANSI_J), "k": UInt32(kVK_ANSI_K), "l": UInt32(kVK_ANSI_L),
-        "m": UInt32(kVK_ANSI_M), "n": UInt32(kVK_ANSI_N), "o": UInt32(kVK_ANSI_O), "p": UInt32(kVK_ANSI_P),
-        "q": UInt32(kVK_ANSI_Q), "r": UInt32(kVK_ANSI_R), "s": UInt32(kVK_ANSI_S), "t": UInt32(kVK_ANSI_T),
-        "u": UInt32(kVK_ANSI_U), "v": UInt32(kVK_ANSI_V), "w": UInt32(kVK_ANSI_W), "x": UInt32(kVK_ANSI_X),
+        "a": UInt32(kVK_ANSI_A), "b": UInt32(kVK_ANSI_B), "c": UInt32(kVK_ANSI_C),
+        "d": UInt32(kVK_ANSI_D),
+        "e": UInt32(kVK_ANSI_E), "f": UInt32(kVK_ANSI_F), "g": UInt32(kVK_ANSI_G),
+        "h": UInt32(kVK_ANSI_H),
+        "i": UInt32(kVK_ANSI_I), "j": UInt32(kVK_ANSI_J), "k": UInt32(kVK_ANSI_K),
+        "l": UInt32(kVK_ANSI_L),
+        "m": UInt32(kVK_ANSI_M), "n": UInt32(kVK_ANSI_N), "o": UInt32(kVK_ANSI_O),
+        "p": UInt32(kVK_ANSI_P),
+        "q": UInt32(kVK_ANSI_Q), "r": UInt32(kVK_ANSI_R), "s": UInt32(kVK_ANSI_S),
+        "t": UInt32(kVK_ANSI_T),
+        "u": UInt32(kVK_ANSI_U), "v": UInt32(kVK_ANSI_V), "w": UInt32(kVK_ANSI_W),
+        "x": UInt32(kVK_ANSI_X),
         "y": UInt32(kVK_ANSI_Y), "z": UInt32(kVK_ANSI_Z),
-        "0": UInt32(kVK_ANSI_0), "1": UInt32(kVK_ANSI_1), "2": UInt32(kVK_ANSI_2), "3": UInt32(kVK_ANSI_3),
-        "4": UInt32(kVK_ANSI_4), "5": UInt32(kVK_ANSI_5), "6": UInt32(kVK_ANSI_6), "7": UInt32(kVK_ANSI_7),
+        "0": UInt32(kVK_ANSI_0), "1": UInt32(kVK_ANSI_1), "2": UInt32(kVK_ANSI_2),
+        "3": UInt32(kVK_ANSI_3),
+        "4": UInt32(kVK_ANSI_4), "5": UInt32(kVK_ANSI_5), "6": UInt32(kVK_ANSI_6),
+        "7": UInt32(kVK_ANSI_7),
         "8": UInt32(kVK_ANSI_8), "9": UInt32(kVK_ANSI_9),
         "space": UInt32(kVK_Space),
         "tab": UInt32(kVK_Tab),
@@ -802,7 +933,7 @@ enum KeyComboParser {
         "]": UInt32(kVK_ANSI_RightBracket),
         ";": UInt32(kVK_ANSI_Semicolon),
         ":": UInt32(kVK_ANSI_Semicolon),
-        "'": UInt32(kVK_ANSI_Quote)
+        "'": UInt32(kVK_ANSI_Quote),
     ]
 
     static func parse(_ input: String) -> KeyCombo? {
@@ -1039,13 +1170,17 @@ final class SettingsViewController: NSViewController {
         urlField.frame = NSRect(x: 160, y: 2, width: 390, height: 24)
         rowView.addSubview(urlField)
 
-        let removeButton = NSButton(title: "Remove", target: self, action: #selector(removeTabRow(_:)))
+        let removeButton = NSButton(
+            title: "Remove", target: self, action: #selector(removeTabRow(_:)))
         removeButton.bezelStyle = .rounded
         removeButton.frame = NSRect(x: 558, y: 0, width: 62, height: 28)
         rowView.addSubview(removeButton)
 
         tabsRowsContainer.addSubview(rowView)
-        tabRows.append(TabRow(container: rowView, nameField: nameField, urlField: urlField, removeButton: removeButton))
+        tabRows.append(
+            TabRow(
+                container: rowView, nameField: nameField, urlField: urlField,
+                removeButton: removeButton))
     }
 
     private func updateRowsLayout() {
