@@ -12,14 +12,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsButton: NSButton!
     private var tabButtons: [NSButton] = []
     private var webViews: [WKWebView] = []
+    private var activeWebView: WKWebView?
     private var selectedTabIndex: Int = 0
+    private let sharedProcessPool = WKProcessPool()
 
     private var hotKeyManager = GlobalHotKeyManager()
     private var settingsWindowController: NSWindowController?
 
     private let settingsStore = AppSettingsStore.shared
     private let titleBarHeight: CGFloat = 42
-    private let minWindowAlpha: CGFloat = 0.25
+    private let minWindowAlpha: CGFloat = 0.55
     private let maxWindowAlpha: CGFloat = 1.0
     private let windowAlphaStep: CGFloat = 0.05
 
@@ -106,21 +108,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     private func loadTabsFromSettings() {
-        webViews.forEach { $0.removeFromSuperview() }
+        webViews.forEach {
+            $0.stopLoading()
+            $0.removeFromSuperview()
+        }
         webViews.removeAll()
+        activeWebView = nil
 
         let tabs = settingsStore.loadTabs()
         rebuildTabButtons(with: tabs.map { $0.title })
 
         for tab in tabs {
-            let webView = WKWebView(frame: tabContainerView.bounds)
+            let webView = makeWebView()
             webView.autoresizingMask = [.width, .height]
-            webView.isHidden = true
-            webView.setValue(false, forKey: "drawsBackground")
             if let url = URL(string: tab.url), !tab.url.isEmpty {
                 webView.load(URLRequest(url: url))
             }
-            tabContainerView.addSubview(webView)
             webViews.append(webView)
         }
 
@@ -201,9 +204,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard index >= 0, index < webViews.count else { return }
         selectedTabIndex = index
 
-        for (idx, webView) in webViews.enumerated() {
-            webView.isHidden = idx != index
+        let nextWebView = webViews[index]
+        if activeWebView !== nextWebView {
+            activeWebView?.removeFromSuperview()
+            nextWebView.frame = tabContainerView.bounds
+            tabContainerView.addSubview(nextWebView)
+            activeWebView = nextWebView
         }
+
         for (idx, button) in tabButtons.enumerated() {
             button.state = (idx == index) ? .on : .off
         }
@@ -215,6 +223,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc private func didTapTabButton(_ sender: NSButton) {
         selectTab(index: sender.tag)
+    }
+
+    private func makeWebView() -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.processPool = sharedProcessPool
+        config.websiteDataStore = .default()
+
+        let webView = WKWebView(frame: tabContainerView.bounds, configuration: config)
+        // Keep page rendering opaque; the panel itself still supports transparency via alpha.
+        webView.setValue(true, forKey: "drawsBackground")
+        return webView
     }
 
     @objc private func openSettings() {
@@ -363,7 +382,7 @@ final class AppSettingsStore {
     func loadWindowOpacity() -> CGFloat {
         let saved = defaults.double(forKey: windowOpacityKey)
         let initial = saved == 0 ? 0.9 : saved
-        return CGFloat(min(1.0, max(0.25, initial)))
+        return CGFloat(min(1.0, max(0.55, initial)))
     }
 
     func saveWindowOpacity(_ opacity: CGFloat) {
