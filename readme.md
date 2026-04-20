@@ -95,9 +95,11 @@ Output:
 
 The workflow at `.github/workflows/release.yml`:
 
-- Triggers on pushed tags matching `v*` (for example `v1.0.0`)
+- Triggers on every pushed commit (branch pushes) and on pushed tags matching `v*`
 - Builds on `macos-latest`
 - Runs `./scripts/build_release.sh`
+- On tag push (`v*`): publishes a normal release
+- On branch push: publishes/updates a prerelease with an auto-generated tag like `commit-main-abc1234`
 - Uploads `dist/stealthAI-macos.zip` to the GitHub Release page
 
 ### How to Publish a Release
@@ -108,6 +110,12 @@ git push origin v1.0.0
 ```
 
 Once the workflow finishes, the zip artifact is attached to the release.
+
+### Commit-Based Prereleases
+
+No manual tag is required for commit builds.
+
+On every commit push, the workflow creates or updates a prerelease automatically.
 
 ## Notes
 
