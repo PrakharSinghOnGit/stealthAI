@@ -27,10 +27,12 @@ It is designed for:
 
 ## Project Structure
 
-- `stealthAI/AppDelegate.swift` - main app logic, hotkeys, settings, webview lifecycle
-- `stealthAI/StealthPanel.swift` - custom panel and click-through blur effect view
-- `scripts/build_release.sh` - local release build script (creates zip artifact)
-- `.github/workflows/release.yml` - GitHub Action for tagged release builds
+- `mac/stealthAI/AppDelegate.swift` - macOS app logic, hotkeys, settings, webview lifecycle
+- `mac/stealthAI/StealthPanel.swift` - macOS panel and click-through blur effect view
+- `mac/scripts/build_release.sh` - macOS release build script (creates zip artifact)
+- `windows/src/main.cpp` - native Win32 app with WebView2 and global hotkeys
+- `windows/scripts/build_release.ps1` - Windows release build script (creates zip artifact)
+- `.github/workflows/release.yml` - CI for macOS + Windows artifacts and tagged releases
 
 ## Run Locally
 
@@ -43,7 +45,17 @@ Use Xcode:
 Or use terminal:
 
 ```bash
-xcodebuild -project stealthAI.xcodeproj -scheme stealthAI -configuration Debug build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project mac/stealthAI.xcodeproj -scheme stealthAI -configuration Debug build CODE_SIGNING_ALLOWED=NO
+```
+
+### Windows
+
+Native Win32 implementation using WebView2 runtime.
+
+Run on Windows PowerShell:
+
+```powershell
+./windows/scripts/build_release.ps1
 ```
 
 ## Default Hotkeys
@@ -84,23 +96,22 @@ For best efficiency:
 The script below builds a Release app and produces a zip file:
 
 ```bash
-./scripts/build_release.sh
+./mac/scripts/build_release.sh
 ```
 
 Output:
 
-- `dist/stealthAI-macos.zip`
+- `mac/dist/stealthAI-macos.zip`
+- `windows/dist/stealthAI-windows-x64.zip` (when built on Windows)
 
 ## GitHub Release Automation
 
 The workflow at `.github/workflows/release.yml`:
 
-- Triggers on every pushed commit (branch pushes) and on pushed tags matching `v*`
-- Builds on `macos-latest`
-- Runs `./scripts/build_release.sh`
-- On tag push (`v*`): publishes a normal release
-- On branch push: publishes/updates a prerelease with an auto-generated tag like `commit-main-abc1234`
-- Uploads `dist/stealthAI-macos.zip` to the GitHub Release page
+- Triggers on every pushed commit and on pushed tags matching `v*`
+- Builds macOS artifact on `macos-latest`
+- Builds Windows artifact on `windows-latest`
+- On tag push (`v*`): publishes a GitHub release with both zip artifacts
 
 ### How to Publish a Release
 
@@ -109,13 +120,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-Once the workflow finishes, the zip artifact is attached to the release.
-
-### Commit-Based Prereleases
-
-No manual tag is required for commit builds.
-
-On every commit push, the workflow creates or updates a prerelease automatically.
+Once the workflow finishes, both zip artifacts are attached to the release.
 
 ## Notes
 

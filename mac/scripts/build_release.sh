@@ -31,8 +31,8 @@ ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
 
 echo "Created release artifact: $ZIP_PATH"
 
-if [[ -f "./scripts/unzip_and_run.sh" ]]; then
-  cp "./scripts/unzip_and_run.sh" "$DIST_DIR/"
+if [[ -f "$ROOT_DIR/scripts/unzip_and_run.sh" ]]; then
+  cp "$ROOT_DIR/scripts/unzip_and_run.sh" "$DIST_DIR/"
   echo "Copied unzip_and_run.sh to $DIST_DIR"
 else
   echo "Warning: unzip_and_run.sh not found in the current directory. Please ensure it is included in the scripts directory." >&2
