@@ -3,7 +3,7 @@ import WebKit
 import Carbon.HIToolbox
 
 @main
-class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
 
     var panel: StealthPanel!
     private var tabContainerView: NSView!
@@ -25,7 +25,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let minWindowAlpha: CGFloat = 0.55
     private let maxWindowAlpha: CGFloat = 1.0
     private let windowAlphaStep: CGFloat = 0.05
-    private let blurOverlayOpacity: CGFloat = 0.24
+    private let minBlurOverlayOpacity: CGFloat = 0.0
+    private let maxBlurOverlayOpacity: CGFloat = 0.65
+    private let blurOverlayStep: CGFloat = 0.04
+    private var blurOverlayOpacity: CGFloat = 0.24
+    private var grayscaleEnabled = false
+    private var transparentBackgroundEnabled = true
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         settingsStore.ensureDefaults()
@@ -51,6 +56,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
+
+        blurOverlayOpacity = settingsStore.loadBlurOverlayOpacity()
+        grayscaleEnabled = settingsStore.loadGrayscaleEnabled()
+        transparentBackgroundEnabled = settingsStore.loadTransparentBackgroundEnabled()
 
         buildUI()
         loadTabsFromSettings()
@@ -181,6 +190,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hotKeyManager.register(id: .switchTab, hotKey: hotkeys.switchTab) { [weak self] in
             self?.switchToNextTab()
         }
+        hotKeyManager.register(id: .refreshTab, hotKey: hotkeys.refreshTab) { [weak self] in
+            self?.refreshCurrentTab()
+        }
         hotKeyManager.register(id: .decreaseOpacity, hotKey: hotkeys.decreaseOpacity) { [weak self] in
             guard let self else { return }
             self.adjustTransparency(by: -self.windowAlphaStep)
@@ -189,12 +201,45 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self else { return }
             self.adjustTransparency(by: self.windowAlphaStep)
         }
+        hotKeyManager.register(id: .decreaseBlur, hotKey: hotkeys.decreaseBlur) { [weak self] in
+            guard let self else { return }
+            self.adjustBlur(by: -self.blurOverlayStep)
+        }
+        hotKeyManager.register(id: .increaseBlur, hotKey: hotkeys.increaseBlur) { [weak self] in
+            guard let self else { return }
+            self.adjustBlur(by: self.blurOverlayStep)
+        }
+        hotKeyManager.register(id: .toggleGrayscale, hotKey: hotkeys.toggleGrayscale) { [weak self] in
+            self?.toggleGrayscale()
+        }
+        hotKeyManager.register(id: .toggleTransparentBackground, hotKey: hotkeys.toggleTransparentBackground) { [weak self] in
+            self?.toggleTransparentBackground()
+        }
     }
 
     private func adjustTransparency(by delta: CGFloat) {
         let next = min(maxWindowAlpha, max(minWindowAlpha, panel.alphaValue + delta))
         panel.alphaValue = next
         settingsStore.saveWindowOpacity(next)
+    }
+
+    private func adjustBlur(by delta: CGFloat) {
+        let next = min(maxBlurOverlayOpacity, max(minBlurOverlayOpacity, blurOverlayOpacity + delta))
+        blurOverlayOpacity = next
+        blurOverlayView.alphaValue = next
+        settingsStore.saveBlurOverlayOpacity(next)
+    }
+
+    private func toggleGrayscale() {
+        grayscaleEnabled.toggle()
+        settingsStore.saveGrayscaleEnabled(grayscaleEnabled)
+        applyStealthModesToAllWebViews()
+    }
+
+    private func toggleTransparentBackground() {
+        transparentBackgroundEnabled.toggle()
+        settingsStore.saveTransparentBackgroundEnabled(transparentBackgroundEnabled)
+        applyStealthModesToAllWebViews()
     }
 
     private func togglePanelVisibility() {
@@ -209,6 +254,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard !webViews.isEmpty else { return }
         let next = (selectedTabIndex + 1) % webViews.count
         selectTab(index: next)
+    }
+
+    private func refreshCurrentTab() {
+        guard selectedTabIndex >= 0, selectedTabIndex < webViews.count else { return }
+        webViews[selectedTabIndex].reload()
     }
 
     private func selectTab(index: Int) {
@@ -244,6 +294,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
         let webView = WKWebView(frame: tabContainerView.bounds, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+        webView.navigationDelegate = self
         return webView
     }
 
@@ -256,10 +307,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             const style = document.createElement('style');
             style.id = 'stealthai-style';
             style.textContent = `
-                html, body {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                }
                 *, *::before, *::after {
                     animation: none !important;
                     transition-property: none !important;
@@ -269,21 +316,68 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             `;
 
+            const state = {
+                grayscale: false,
+                transparentBg: true
+            };
+
+            const applyState = () => {
+                const dynamicStyle = document.createElement('style');
+                dynamicStyle.textContent = `
+                    html {
+                        filter: ${state.grayscale ? 'grayscale(1)' : 'none'} !important;
+                    }
+                    html, body {
+                        background: ${state.transparentBg ? 'transparent' : '#111'} !important;
+                        background-color: ${state.transparentBg ? 'transparent' : '#111'} !important;
+                    }
+                `;
+
+                const existing = document.getElementById('stealthai-dynamic-style');
+                if (existing) {
+                    existing.remove();
+                }
+
+                dynamicStyle.id = 'stealthai-dynamic-style';
+                document.documentElement.appendChild(dynamicStyle);
+            };
+
+            window.__stealthAISetMode = (grayscale, transparentBg) => {
+                state.grayscale = !!grayscale;
+                state.transparentBg = !!transparentBg;
+                applyState();
+            };
+
             if (document.documentElement) {
-                document.documentElement.style.background = 'transparent';
-                document.documentElement.style.backgroundColor = 'transparent';
                 document.documentElement.appendChild(style);
+                applyState();
             } else {
                 document.addEventListener('DOMContentLoaded', () => {
-                    document.documentElement.style.background = 'transparent';
-                    document.documentElement.style.backgroundColor = 'transparent';
                     document.documentElement.appendChild(style);
+                    applyState();
                 }, { once: true });
             }
         })();
         """
 
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+    }
+
+    private func applyStealthModes(to webView: WKWebView) {
+        let grayscaleValue = grayscaleEnabled ? "true" : "false"
+        let transparentValue = transparentBackgroundEnabled ? "true" : "false"
+        let script = "window.__stealthAISetMode && window.__stealthAISetMode(\(grayscaleValue), \(transparentValue));"
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    private func applyStealthModesToAllWebViews() {
+        for webView in webViews {
+            applyStealthModes(to: webView)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        applyStealthModes(to: webView)
     }
 
     @objc private func openSettings() {
@@ -301,7 +395,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "Stealth AI Settings"
         window.styleMask = [.titled, .closable]
         window.level = .normal
-        window.setContentSize(NSSize(width: 660, height: 470))
+        window.setContentSize(NSSize(width: 700, height: 620))
         window.center()
         window.delegate = self
 
@@ -333,8 +427,13 @@ struct KeyCombo {
 struct HotKeyConfig {
     var togglePanel: KeyCombo
     var switchTab: KeyCombo
+    var refreshTab: KeyCombo
     var decreaseOpacity: KeyCombo
     var increaseOpacity: KeyCombo
+    var decreaseBlur: KeyCombo
+    var increaseBlur: KeyCombo
+    var toggleGrayscale: KeyCombo
+    var toggleTransparentBackground: KeyCombo
 }
 
 final class AppSettingsStore {
@@ -345,9 +444,17 @@ final class AppSettingsStore {
     private let tabsKey = "tabs"
     private let toggleHotKeyKey = "toggle_hotkey"
     private let switchHotKeyKey = "switch_hotkey"
+    private let refreshHotKeyKey = "refresh_hotkey"
     private let decreaseOpacityHotKeyKey = "decrease_opacity_hotkey"
     private let increaseOpacityHotKeyKey = "increase_opacity_hotkey"
+    private let decreaseBlurHotKeyKey = "decrease_blur_hotkey"
+    private let increaseBlurHotKeyKey = "increase_blur_hotkey"
+    private let grayscaleToggleHotKeyKey = "grayscale_toggle_hotkey"
+    private let transparentToggleHotKeyKey = "transparent_toggle_hotkey"
     private let windowOpacityKey = "window_opacity"
+    private let blurOverlayOpacityKey = "blur_overlay_opacity"
+    private let grayscaleEnabledKey = "grayscale_enabled"
+    private let transparentBackgroundEnabledKey = "transparent_background_enabled"
 
     private init() {}
 
@@ -369,6 +476,10 @@ final class AppSettingsStore {
             defaults.set("cmd+shift+tab", forKey: switchHotKeyKey)
         }
 
+        if defaults.string(forKey: refreshHotKeyKey) == nil {
+            defaults.set("cmd+shift+r", forKey: refreshHotKeyKey)
+        }
+
         if defaults.string(forKey: decreaseOpacityHotKeyKey) == nil {
             defaults.set("cmd+shift+[", forKey: decreaseOpacityHotKeyKey)
         }
@@ -377,8 +488,36 @@ final class AppSettingsStore {
             defaults.set("cmd+shift+]", forKey: increaseOpacityHotKeyKey)
         }
 
+        if defaults.string(forKey: decreaseBlurHotKeyKey) == nil {
+            defaults.set("cmd+shift+;", forKey: decreaseBlurHotKeyKey)
+        }
+
+        if defaults.string(forKey: increaseBlurHotKeyKey) == nil {
+            defaults.set("cmd+shift+'", forKey: increaseBlurHotKeyKey)
+        }
+
+        if defaults.string(forKey: grayscaleToggleHotKeyKey) == nil {
+            defaults.set("cmd+shift+g", forKey: grayscaleToggleHotKeyKey)
+        }
+
+        if defaults.string(forKey: transparentToggleHotKeyKey) == nil {
+            defaults.set("cmd+shift+t", forKey: transparentToggleHotKeyKey)
+        }
+
         if defaults.object(forKey: windowOpacityKey) == nil {
             defaults.set(0.9, forKey: windowOpacityKey)
+        }
+
+        if defaults.object(forKey: blurOverlayOpacityKey) == nil {
+            defaults.set(0.24, forKey: blurOverlayOpacityKey)
+        }
+
+        if defaults.object(forKey: grayscaleEnabledKey) == nil {
+            defaults.set(false, forKey: grayscaleEnabledKey)
+        }
+
+        if defaults.object(forKey: transparentBackgroundEnabledKey) == nil {
+            defaults.set(true, forKey: transparentBackgroundEnabledKey)
         }
     }
 
@@ -413,19 +552,34 @@ final class AppSettingsStore {
     func loadHotKeys() -> HotKeyConfig {
         let toggleText = defaults.string(forKey: toggleHotKeyKey) ?? "cmd+shift+space"
         let switchText = defaults.string(forKey: switchHotKeyKey) ?? "cmd+shift+tab"
+        let refreshText = defaults.string(forKey: refreshHotKeyKey) ?? "cmd+shift+r"
         let decreaseText = defaults.string(forKey: decreaseOpacityHotKeyKey) ?? "cmd+shift+["
         let increaseText = defaults.string(forKey: increaseOpacityHotKeyKey) ?? "cmd+shift+]"
+        let decreaseBlurText = defaults.string(forKey: decreaseBlurHotKeyKey) ?? "cmd+shift+;"
+        let increaseBlurText = defaults.string(forKey: increaseBlurHotKeyKey) ?? "cmd+shift+'"
+        let grayscaleToggleText = defaults.string(forKey: grayscaleToggleHotKeyKey) ?? "cmd+shift+g"
+        let transparentToggleText = defaults.string(forKey: transparentToggleHotKeyKey) ?? "cmd+shift+t"
 
         let toggleCombo = KeyComboParser.parse(toggleText) ?? KeyComboParser.defaultToggle
         let switchCombo = KeyComboParser.parse(switchText) ?? KeyComboParser.defaultSwitch
+        let refreshCombo = KeyComboParser.parse(refreshText) ?? KeyComboParser.defaultRefreshTab
         let decreaseCombo = KeyComboParser.parse(decreaseText) ?? KeyComboParser.defaultDecreaseOpacity
         let increaseCombo = KeyComboParser.parse(increaseText) ?? KeyComboParser.defaultIncreaseOpacity
+        let decreaseBlurCombo = KeyComboParser.parse(decreaseBlurText) ?? KeyComboParser.defaultDecreaseBlur
+        let increaseBlurCombo = KeyComboParser.parse(increaseBlurText) ?? KeyComboParser.defaultIncreaseBlur
+        let grayscaleToggleCombo = KeyComboParser.parse(grayscaleToggleText) ?? KeyComboParser.defaultToggleGrayscale
+        let transparentToggleCombo = KeyComboParser.parse(transparentToggleText) ?? KeyComboParser.defaultToggleTransparent
 
         return HotKeyConfig(
             togglePanel: toggleCombo,
             switchTab: switchCombo,
+            refreshTab: refreshCombo,
             decreaseOpacity: decreaseCombo,
-            increaseOpacity: increaseCombo
+            increaseOpacity: increaseCombo,
+            decreaseBlur: decreaseBlurCombo,
+            increaseBlur: increaseBlurCombo,
+            toggleGrayscale: grayscaleToggleCombo,
+            toggleTransparentBackground: transparentToggleCombo
         )
     }
 
@@ -439,19 +593,75 @@ final class AppSettingsStore {
         defaults.set(Double(opacity), forKey: windowOpacityKey)
     }
 
-    func saveHotKeys(toggle: String, switchTab: String, decreaseOpacity: String, increaseOpacity: String) {
-        defaults.set(toggle, forKey: toggleHotKeyKey)
-        defaults.set(switchTab, forKey: switchHotKeyKey)
-        defaults.set(decreaseOpacity, forKey: decreaseOpacityHotKeyKey)
-        defaults.set(increaseOpacity, forKey: increaseOpacityHotKeyKey)
+    func loadBlurOverlayOpacity() -> CGFloat {
+        let saved = defaults.double(forKey: blurOverlayOpacityKey)
+        let initial = saved == 0 ? 0.24 : saved
+        return CGFloat(min(0.65, max(0.0, initial)))
     }
 
-    func loadHotKeyTextValues() -> (toggle: String, switchTab: String, decreaseOpacity: String, increaseOpacity: String) {
+    func saveBlurOverlayOpacity(_ opacity: CGFloat) {
+        defaults.set(Double(opacity), forKey: blurOverlayOpacityKey)
+    }
+
+    func loadGrayscaleEnabled() -> Bool {
+        defaults.bool(forKey: grayscaleEnabledKey)
+    }
+
+    func saveGrayscaleEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: grayscaleEnabledKey)
+    }
+
+    func loadTransparentBackgroundEnabled() -> Bool {
+        defaults.bool(forKey: transparentBackgroundEnabledKey)
+    }
+
+    func saveTransparentBackgroundEnabled(_ enabled: Bool) {
+        defaults.set(enabled, forKey: transparentBackgroundEnabledKey)
+    }
+
+    func saveHotKeys(
+        toggle: String,
+        switchTab: String,
+        refreshTab: String,
+        decreaseOpacity: String,
+        increaseOpacity: String,
+        decreaseBlur: String,
+        increaseBlur: String,
+        toggleGrayscale: String,
+        toggleTransparentBackground: String
+    ) {
+        defaults.set(toggle, forKey: toggleHotKeyKey)
+        defaults.set(switchTab, forKey: switchHotKeyKey)
+        defaults.set(refreshTab, forKey: refreshHotKeyKey)
+        defaults.set(decreaseOpacity, forKey: decreaseOpacityHotKeyKey)
+        defaults.set(increaseOpacity, forKey: increaseOpacityHotKeyKey)
+        defaults.set(decreaseBlur, forKey: decreaseBlurHotKeyKey)
+        defaults.set(increaseBlur, forKey: increaseBlurHotKeyKey)
+        defaults.set(toggleGrayscale, forKey: grayscaleToggleHotKeyKey)
+        defaults.set(toggleTransparentBackground, forKey: transparentToggleHotKeyKey)
+    }
+
+    func loadHotKeyTextValues() -> (
+        toggle: String,
+        switchTab: String,
+        refreshTab: String,
+        decreaseOpacity: String,
+        increaseOpacity: String,
+        decreaseBlur: String,
+        increaseBlur: String,
+        toggleGrayscale: String,
+        toggleTransparentBackground: String
+    ) {
         (
             defaults.string(forKey: toggleHotKeyKey) ?? "cmd+shift+space",
             defaults.string(forKey: switchHotKeyKey) ?? "cmd+shift+tab",
+            defaults.string(forKey: refreshHotKeyKey) ?? "cmd+shift+r",
             defaults.string(forKey: decreaseOpacityHotKeyKey) ?? "cmd+shift+[",
-            defaults.string(forKey: increaseOpacityHotKeyKey) ?? "cmd+shift+]"
+            defaults.string(forKey: increaseOpacityHotKeyKey) ?? "cmd+shift+]",
+            defaults.string(forKey: decreaseBlurHotKeyKey) ?? "cmd+shift+;",
+            defaults.string(forKey: increaseBlurHotKeyKey) ?? "cmd+shift+'",
+            defaults.string(forKey: grayscaleToggleHotKeyKey) ?? "cmd+shift+g",
+            defaults.string(forKey: transparentToggleHotKeyKey) ?? "cmd+shift+t"
         )
     }
 }
@@ -461,6 +671,11 @@ enum HotKeyActionID: UInt32 {
     case switchTab = 2
     case decreaseOpacity = 3
     case increaseOpacity = 4
+    case decreaseBlur = 5
+    case increaseBlur = 6
+    case toggleGrayscale = 7
+    case toggleTransparentBackground = 8
+    case refreshTab = 9
 }
 
 final class GlobalHotKeyManager {
@@ -558,8 +773,13 @@ final class GlobalHotKeyManager {
 enum KeyComboParser {
     static let defaultToggle = KeyCombo(keyCode: UInt32(kVK_Space), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+space")
     static let defaultSwitch = KeyCombo(keyCode: UInt32(kVK_Tab), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+tab")
+    static let defaultRefreshTab = KeyCombo(keyCode: UInt32(kVK_ANSI_R), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+r")
     static let defaultDecreaseOpacity = KeyCombo(keyCode: UInt32(kVK_ANSI_LeftBracket), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+[")
     static let defaultIncreaseOpacity = KeyCombo(keyCode: UInt32(kVK_ANSI_RightBracket), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+]")
+    static let defaultDecreaseBlur = KeyCombo(keyCode: UInt32(kVK_ANSI_Semicolon), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+;")
+    static let defaultIncreaseBlur = KeyCombo(keyCode: UInt32(kVK_ANSI_Quote), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+'")
+    static let defaultToggleGrayscale = KeyCombo(keyCode: UInt32(kVK_ANSI_G), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+g")
+    static let defaultToggleTransparent = KeyCombo(keyCode: UInt32(kVK_ANSI_T), carbonModifiers: UInt32(cmdKey | shiftKey), displayValue: "cmd+shift+t")
 
     private static let keyMap: [String: UInt32] = [
         "a": UInt32(kVK_ANSI_A), "b": UInt32(kVK_ANSI_B), "c": UInt32(kVK_ANSI_C), "d": UInt32(kVK_ANSI_D),
@@ -579,7 +799,10 @@ enum KeyComboParser {
         "escape": UInt32(kVK_Escape),
         "esc": UInt32(kVK_Escape),
         "[": UInt32(kVK_ANSI_LeftBracket),
-        "]": UInt32(kVK_ANSI_RightBracket)
+        "]": UInt32(kVK_ANSI_RightBracket),
+        ";": UInt32(kVK_ANSI_Semicolon),
+        ":": UInt32(kVK_ANSI_Semicolon),
+        "'": UInt32(kVK_ANSI_Quote)
     ]
 
     static func parse(_ input: String) -> KeyCombo? {
@@ -630,14 +853,19 @@ final class SettingsViewController: NSViewController {
 
     private let toggleHotkeyField = NSTextField(string: "")
     private let switchTabHotkeyField = NSTextField(string: "")
+    private let refreshTabHotkeyField = NSTextField(string: "")
     private let decreaseOpacityHotkeyField = NSTextField(string: "")
     private let increaseOpacityHotkeyField = NSTextField(string: "")
+    private let decreaseBlurHotkeyField = NSTextField(string: "")
+    private let increaseBlurHotkeyField = NSTextField(string: "")
+    private let grayscaleToggleHotkeyField = NSTextField(string: "")
+    private let transparentToggleHotkeyField = NSTextField(string: "")
     private let errorLabel = NSTextField(labelWithString: "")
 
     private let maxTabs = 10
 
     override func loadView() {
-        self.view = NSView(frame: NSRect(x: 0, y: 0, width: 660, height: 470))
+        self.view = NSView(frame: NSRect(x: 0, y: 0, width: 700, height: 620))
     }
 
     override func viewDidLoad() {
@@ -649,15 +877,15 @@ final class SettingsViewController: NSViewController {
     private func buildForm() {
         let title = NSTextField(labelWithString: "Settings")
         title.font = .systemFont(ofSize: 22, weight: .semibold)
-        title.frame = NSRect(x: 20, y: 392, width: 200, height: 28)
+        title.frame = NSRect(x: 20, y: 544, width: 200, height: 28)
         view.addSubview(title)
 
         let tabsHeader = NSTextField(labelWithString: "Tabs (up to 10)")
         tabsHeader.font = .systemFont(ofSize: 13, weight: .medium)
-        tabsHeader.frame = NSRect(x: 20, y: 365, width: 200, height: 20)
+        tabsHeader.frame = NSRect(x: 20, y: 516, width: 200, height: 20)
         view.addSubview(tabsHeader)
 
-        tabsScrollView.frame = NSRect(x: 20, y: 216, width: 620, height: 180)
+        tabsScrollView.frame = NSRect(x: 20, y: 336, width: 660, height: 180)
         tabsScrollView.borderType = .bezelBorder
         tabsScrollView.hasVerticalScroller = true
         tabsScrollView.hasHorizontalScroller = false
@@ -668,53 +896,93 @@ final class SettingsViewController: NSViewController {
         addTabButton.target = self
         addTabButton.action = #selector(addTabRow)
         addTabButton.bezelStyle = .rounded
-        addTabButton.frame = NSRect(x: 20, y: 184, width: 84, height: 26)
+        addTabButton.frame = NSRect(x: 20, y: 304, width: 84, height: 26)
         view.addSubview(addTabButton)
 
         let keyHeader = NSTextField(labelWithString: "Hotkeys (format: cmd+shift+space)")
         keyHeader.font = .systemFont(ofSize: 13, weight: .medium)
-        keyHeader.frame = NSRect(x: 20, y: 150, width: 300, height: 18)
+        keyHeader.frame = NSRect(x: 20, y: 270, width: 360, height: 18)
         view.addSubview(keyHeader)
 
         let toggleLabel = NSTextField(labelWithString: "Toggle hide/show")
-        toggleLabel.frame = NSRect(x: 20, y: 122, width: 130, height: 20)
+        toggleLabel.frame = NSRect(x: 20, y: 242, width: 190, height: 20)
         view.addSubview(toggleLabel)
 
         configureEditableField(toggleHotkeyField)
-        toggleHotkeyField.frame = NSRect(x: 190, y: 118, width: 230, height: 24)
+        toggleHotkeyField.frame = NSRect(x: 220, y: 238, width: 280, height: 24)
         view.addSubview(toggleHotkeyField)
 
         let switchLabel = NSTextField(labelWithString: "Switch tabs")
-        switchLabel.frame = NSRect(x: 20, y: 92, width: 130, height: 20)
+        switchLabel.frame = NSRect(x: 20, y: 214, width: 190, height: 20)
         view.addSubview(switchLabel)
 
         configureEditableField(switchTabHotkeyField)
-        switchTabHotkeyField.frame = NSRect(x: 190, y: 88, width: 230, height: 24)
+        switchTabHotkeyField.frame = NSRect(x: 220, y: 210, width: 280, height: 24)
         view.addSubview(switchTabHotkeyField)
 
+        let refreshLabel = NSTextField(labelWithString: "Refresh current tab")
+        refreshLabel.frame = NSRect(x: 520, y: 214, width: 160, height: 20)
+        view.addSubview(refreshLabel)
+
+        configureEditableField(refreshTabHotkeyField)
+        refreshTabHotkeyField.frame = NSRect(x: 520, y: 186, width: 160, height: 24)
+        view.addSubview(refreshTabHotkeyField)
+
         let decreaseOpacityLabel = NSTextField(labelWithString: "Decrease opacity")
-        decreaseOpacityLabel.frame = NSRect(x: 20, y: 62, width: 130, height: 20)
+        decreaseOpacityLabel.frame = NSRect(x: 20, y: 186, width: 190, height: 20)
         view.addSubview(decreaseOpacityLabel)
 
         configureEditableField(decreaseOpacityHotkeyField)
-        decreaseOpacityHotkeyField.frame = NSRect(x: 190, y: 58, width: 230, height: 24)
+        decreaseOpacityHotkeyField.frame = NSRect(x: 220, y: 182, width: 280, height: 24)
         view.addSubview(decreaseOpacityHotkeyField)
 
         let increaseOpacityLabel = NSTextField(labelWithString: "Increase opacity")
-        increaseOpacityLabel.frame = NSRect(x: 20, y: 32, width: 130, height: 20)
+        increaseOpacityLabel.frame = NSRect(x: 20, y: 158, width: 190, height: 20)
         view.addSubview(increaseOpacityLabel)
 
         configureEditableField(increaseOpacityHotkeyField)
-        increaseOpacityHotkeyField.frame = NSRect(x: 190, y: 28, width: 230, height: 24)
+        increaseOpacityHotkeyField.frame = NSRect(x: 220, y: 154, width: 280, height: 24)
         view.addSubview(increaseOpacityHotkeyField)
 
+        let decreaseBlurLabel = NSTextField(labelWithString: "Decrease blur")
+        decreaseBlurLabel.frame = NSRect(x: 20, y: 130, width: 190, height: 20)
+        view.addSubview(decreaseBlurLabel)
+
+        configureEditableField(decreaseBlurHotkeyField)
+        decreaseBlurHotkeyField.frame = NSRect(x: 220, y: 126, width: 280, height: 24)
+        view.addSubview(decreaseBlurHotkeyField)
+
+        let increaseBlurLabel = NSTextField(labelWithString: "Increase blur")
+        increaseBlurLabel.frame = NSRect(x: 20, y: 102, width: 190, height: 20)
+        view.addSubview(increaseBlurLabel)
+
+        configureEditableField(increaseBlurHotkeyField)
+        increaseBlurHotkeyField.frame = NSRect(x: 220, y: 98, width: 280, height: 24)
+        view.addSubview(increaseBlurHotkeyField)
+
+        let grayscaleToggleLabel = NSTextField(labelWithString: "Toggle grayscale")
+        grayscaleToggleLabel.frame = NSRect(x: 20, y: 74, width: 190, height: 20)
+        view.addSubview(grayscaleToggleLabel)
+
+        configureEditableField(grayscaleToggleHotkeyField)
+        grayscaleToggleHotkeyField.frame = NSRect(x: 220, y: 70, width: 280, height: 24)
+        view.addSubview(grayscaleToggleHotkeyField)
+
+        let transparentToggleLabel = NSTextField(labelWithString: "Toggle transparent background")
+        transparentToggleLabel.frame = NSRect(x: 20, y: 46, width: 190, height: 20)
+        view.addSubview(transparentToggleLabel)
+
+        configureEditableField(transparentToggleHotkeyField)
+        transparentToggleHotkeyField.frame = NSRect(x: 220, y: 42, width: 280, height: 24)
+        view.addSubview(transparentToggleHotkeyField)
+
         errorLabel.textColor = .systemRed
-        errorLabel.frame = NSRect(x: 20, y: 6, width: 460, height: 20)
+        errorLabel.frame = NSRect(x: 20, y: 12, width: 560, height: 20)
         view.addSubview(errorLabel)
 
         let saveButton = NSButton(title: "Save", target: self, action: #selector(save))
         saveButton.bezelStyle = .rounded
-        saveButton.frame = NSRect(x: 570, y: 8, width: 70, height: 28)
+        saveButton.frame = NSRect(x: 610, y: 8, width: 70, height: 28)
         view.addSubview(saveButton)
     }
 
@@ -742,8 +1010,13 @@ final class SettingsViewController: NSViewController {
         let hotkeys = AppSettingsStore.shared.loadHotKeyTextValues()
         toggleHotkeyField.stringValue = hotkeys.toggle
         switchTabHotkeyField.stringValue = hotkeys.switchTab
+        refreshTabHotkeyField.stringValue = hotkeys.refreshTab
         decreaseOpacityHotkeyField.stringValue = hotkeys.decreaseOpacity
         increaseOpacityHotkeyField.stringValue = hotkeys.increaseOpacity
+        decreaseBlurHotkeyField.stringValue = hotkeys.decreaseBlur
+        increaseBlurHotkeyField.stringValue = hotkeys.increaseBlur
+        grayscaleToggleHotkeyField.stringValue = hotkeys.toggleGrayscale
+        transparentToggleHotkeyField.stringValue = hotkeys.toggleTransparentBackground
 
         updateRowsLayout()
         updateAddButtonState()
@@ -781,13 +1054,13 @@ final class SettingsViewController: NSViewController {
 
         for (idx, row) in tabRows.enumerated() {
             let y = CGFloat(tabRows.count - 1 - idx) * (rowHeight + spacing)
-            row.container.frame = NSRect(x: 0, y: y, width: 620, height: rowHeight)
+            row.container.frame = NSRect(x: 0, y: y, width: 660, height: rowHeight)
             row.removeButton.tag = idx
             row.removeButton.isEnabled = tabRows.count > 1
         }
 
         let totalHeight = max(180, CGFloat(tabRows.count) * (rowHeight + spacing))
-        tabsRowsContainer.frame = NSRect(x: 0, y: 0, width: 620, height: totalHeight)
+        tabsRowsContainer.frame = NSRect(x: 0, y: 0, width: 660, height: totalHeight)
     }
 
     private func updateAddButtonState() {
@@ -818,8 +1091,13 @@ final class SettingsViewController: NSViewController {
 
         let toggleText = toggleHotkeyField.stringValue
         let switchText = switchTabHotkeyField.stringValue
+        let refreshText = refreshTabHotkeyField.stringValue
         let decreaseOpacityText = decreaseOpacityHotkeyField.stringValue
         let increaseOpacityText = increaseOpacityHotkeyField.stringValue
+        let decreaseBlurText = decreaseBlurHotkeyField.stringValue
+        let increaseBlurText = increaseBlurHotkeyField.stringValue
+        let grayscaleToggleText = grayscaleToggleHotkeyField.stringValue
+        let transparentToggleText = transparentToggleHotkeyField.stringValue
 
         guard KeyComboParser.parse(toggleText) != nil else {
             errorLabel.stringValue = "Invalid toggle hotkey format."
@@ -828,6 +1106,11 @@ final class SettingsViewController: NSViewController {
 
         guard KeyComboParser.parse(switchText) != nil else {
             errorLabel.stringValue = "Invalid switch hotkey format."
+            return
+        }
+
+        guard KeyComboParser.parse(refreshText) != nil else {
+            errorLabel.stringValue = "Invalid refresh hotkey format."
             return
         }
 
@@ -841,6 +1124,26 @@ final class SettingsViewController: NSViewController {
             return
         }
 
+        guard KeyComboParser.parse(decreaseBlurText) != nil else {
+            errorLabel.stringValue = "Invalid decrease blur hotkey format."
+            return
+        }
+
+        guard KeyComboParser.parse(increaseBlurText) != nil else {
+            errorLabel.stringValue = "Invalid increase blur hotkey format."
+            return
+        }
+
+        guard KeyComboParser.parse(grayscaleToggleText) != nil else {
+            errorLabel.stringValue = "Invalid grayscale toggle hotkey format."
+            return
+        }
+
+        guard KeyComboParser.parse(transparentToggleText) != nil else {
+            errorLabel.stringValue = "Invalid transparent toggle hotkey format."
+            return
+        }
+
         let tabs: [TabConfig] = tabRows.enumerated().map { idx, row in
             let name = row.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = row.urlField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -851,8 +1154,13 @@ final class SettingsViewController: NSViewController {
         AppSettingsStore.shared.saveHotKeys(
             toggle: toggleText,
             switchTab: switchText,
+            refreshTab: refreshText,
             decreaseOpacity: decreaseOpacityText,
-            increaseOpacity: increaseOpacityText
+            increaseOpacity: increaseOpacityText,
+            decreaseBlur: decreaseBlurText,
+            increaseBlur: increaseBlurText,
+            toggleGrayscale: grayscaleToggleText,
+            toggleTransparentBackground: transparentToggleText
         )
         delegate?.settingsViewControllerDidSave(self)
         view.window?.close()
