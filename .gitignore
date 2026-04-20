@@ -1,2 +1,4 @@
 dist
 build
+
+scripts/unzip_and_run.sh
