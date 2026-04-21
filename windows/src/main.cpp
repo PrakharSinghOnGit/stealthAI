@@ -652,6 +652,9 @@ void StealthApp::LoadSettings() {
 
     if (settings_.tabs.empty()) {
         settings_.tabs.push_back({L"ChatGPT", L"https://chatgpt.com"});
+        settings_.tabs.push_back({L"Claude", L"https://claude.ai"});
+        settings_.tabs.push_back({L"Gemini", L"https://gemini.google.com"});
+        settings_.tabs.push_back({L"Deepseek", L"https://chat.deepseek.com/"});
     }
 
     const int alpha = GetPrivateProfileIntW(L"Visual", L"opacity", 230, settingsPath_.c_str());
@@ -709,13 +712,15 @@ void StealthApp::EnsureSettingsFileExists() {
         L"; stealthAI Windows settings\n"
         L"; Edit tabs and URLs, then click Reload in the app (or press Ctrl+Shift+L).\n"
         L"[Tabs]\n"
-        L"count=3\n"
+        L"count=4\n"
         L"title1=ChatGPT\n"
         L"url1=https://chatgpt.com\n"
         L"title2=Claude\n"
         L"url2=https://claude.ai\n"
         L"title3=Gemini\n"
         L"url3=https://gemini.google.com\n"
+        L"title4=Deepseek\n"
+        L"url4=https://chat.deepseek.com/\n"
         L"\n"
         L"[Visual]\n"
         L"opacity=230\n"
