@@ -53,6 +53,13 @@ Build output:
 
 - `windows/dist/stealthAI-windows-x64.zip`
 
+## Troubleshooting: "incompatible with 64-bit versions of Windows"
+
+If Windows shows this message when launching `stealthAI.exe`, the executable is not a valid x64 build (corrupt download, wrong artifact, or wrong build target).
+
+Use only `windows/dist/stealthAI-windows-x64.zip` produced by `./windows/scripts/build_release.ps1`.
+The script now validates that the packaged executable is AMD64 and fails fast if it is not.
+
 ## Build Inputs
 
 - Visual Studio 2022 Build Tools

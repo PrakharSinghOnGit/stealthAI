@@ -7,9 +7,32 @@ $buildDir = Join-Path $windowsRoot "build"
 $distDir = Join-Path $windowsRoot "dist"
 $sdkRoot = Join-Path $windowsRoot ".webview2sdk"
 $sdkVersion = "1.0.2792.45"
-$nugetZip = Join-Path $sdkRoot "webview2.nupkg"
+$nugetZip = Join-Path $sdkRoot "webview2.zip"
 $extractDir = Join-Path $sdkRoot "pkg"
 $sdkDir = Join-Path $extractDir "build/native"
+
+function Get-PeMachineType {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $bytes = [System.IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 0x40) {
+        throw "Invalid PE file: $Path"
+    }
+
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+    if ($peOffset -lt 0 -or ($peOffset + 6) -ge $bytes.Length) {
+        throw "Corrupt PE header in: $Path"
+    }
+
+    if ($bytes[$peOffset] -ne 0x50 -or $bytes[$peOffset + 1] -ne 0x45 -or $bytes[$peOffset + 2] -ne 0x00 -or $bytes[$peOffset + 3] -ne 0x00) {
+        throw "Missing PE signature in: $Path"
+    }
+
+    return [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+}
 
 if (Test-Path $buildDir) { Remove-Item -Recurse -Force $buildDir }
 if (Test-Path $distDir) { Remove-Item -Recurse -Force $distDir }
@@ -36,6 +59,11 @@ cmake --build $buildDir --config Release
 $exePath = Join-Path $buildDir "Release/stealthAI.exe"
 if (!(Test-Path $exePath)) {
     throw "Release executable not found at $exePath"
+}
+
+$machineType = Get-PeMachineType -Path $exePath
+if ($machineType -ne 0x8664) {
+    throw ("Expected AMD64 executable (0x8664), but found machine type 0x{0:X4}. Aborting package." -f $machineType)
 }
 
 $packageDir = Join-Path $distDir "stealthAI-windows-x64"

@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(stealthAI_windows LANGUAGES CXX)
 
+if(MSVC)
+    # This project ships a Windows x64 artifact only.
+    if(NOT CMAKE_VS_PLATFORM_NAME STREQUAL "x64")
+        message(FATAL_ERROR "stealthAI Windows must be generated for x64. Re-run CMake with '-A x64'.")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
