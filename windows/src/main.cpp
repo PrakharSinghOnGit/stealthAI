@@ -265,6 +265,7 @@ private:
     void ReloadSettings();
 
     void DrawThemedButton(const DRAWITEMSTRUCT* dis);
+    void DrawThemedTab(const DRAWITEMSTRUCT* dis);
 
     std::wstring BuildStealthInjectionScript() const;
 
@@ -369,7 +370,7 @@ void StealthApp::CreateChromeControls() {
         0,
         WC_TABCONTROLW,
         L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_OWNERDRAWFIXED,
         8,
         8,
         600,
@@ -877,8 +878,9 @@ void StealthApp::ApplyTheme() {
     DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFlag, sizeof(darkFlag));
 
     if (tabControl_) {
-        SetWindowTheme(tabControl_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
-        SendMessageW(tabControl_, WM_THEMECHANGED, 0, 0);
+        SetWindowTheme(tabControl_, L"", L"");
+        TabCtrl_SetBkColor(tabControl_, useDark ? RGB(0, 0, 0) : RGB(255, 255, 255));
+        TabCtrl_SetTextColor(tabControl_, useDark ? RGB(255, 255, 255) : RGB(0, 0, 0));
         InvalidateRect(tabControl_, nullptr, TRUE);
     }
     if (settingsButton_) {
@@ -1083,6 +1085,42 @@ void StealthApp::DrawThemedButton(const DRAWITEMSTRUCT* dis) {
     }
 }
 
+void StealthApp::DrawThemedTab(const DRAWITEMSTRUCT* dis) {
+    if (!dis || !dis->hDC || !tabControl_) {
+        return;
+    }
+
+    HDC dc = dis->hDC;
+    RECT rect = dis->rcItem;
+    const bool isSelected = (dis->itemState & ODS_SELECTED) != 0;
+
+    const COLORREF bgColor = isDarkMode_ ? RGB(0, 0, 0) : RGB(255, 255, 255);
+    const COLORREF textColor = isDarkMode_ ? RGB(255, 255, 255) : RGB(0, 0, 0);
+    const COLORREF borderColor = textColor;
+
+    SetDCBrushColor(dc, bgColor);
+    FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+
+    HPEN pen = CreatePen(PS_SOLID, isSelected ? 2 : 1, borderColor);
+    HGDIOBJ oldPen = SelectObject(dc, pen);
+    HGDIOBJ oldBrush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+
+    wchar_t label[256]{};
+    TCITEMW item{};
+    item.mask = TCIF_TEXT;
+    item.pszText = label;
+    item.cchTextMax = static_cast<int>(sizeof(label) / sizeof(label[0]));
+    TabCtrl_GetItem(tabControl_, static_cast<int>(dis->itemID), &item);
+
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, textColor);
+    DrawTextW(dc, label, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+}
+
 LRESULT CALLBACK StealthApp::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     StealthApp* app = nullptr;
 
@@ -1120,6 +1158,10 @@ LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         }
         case WM_DRAWITEM: {
             const auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (dis && dis->CtlType == ODT_TAB && dis->hwndItem == tabControl_) {
+                DrawThemedTab(dis);
+                return TRUE;
+            }
             if (dis && dis->CtlType == ODT_BUTTON &&
                 (dis->hwndItem == settingsButton_ || dis->hwndItem == reloadButton_)) {
                 DrawThemedButton(dis);
