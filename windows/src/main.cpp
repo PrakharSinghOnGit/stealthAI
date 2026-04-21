@@ -109,6 +109,72 @@ std::wstring Trim(const std::wstring& input) {
     return input.substr(begin, end - begin + 1);
 }
 
+std::wstring Hex32(unsigned long value) {
+    wchar_t buffer[16]{};
+    wsprintfW(buffer, L"0x%08lX", value);
+    return buffer;
+}
+
+std::wstring DescribeWin32Error(DWORD errorCode) {
+    if (errorCode == 0) {
+        return L"No additional OS error details.";
+    }
+
+    LPWSTR rawMessage = nullptr;
+    const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+    const DWORD length = FormatMessageW(
+        flags,
+        nullptr,
+        errorCode,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPWSTR>(&rawMessage),
+        0,
+        nullptr);
+
+    std::wstring message;
+    if (length > 0 && rawMessage != nullptr) {
+        message.assign(rawMessage, length);
+        LocalFree(rawMessage);
+        message = Trim(message);
+    }
+
+    if (message.empty()) {
+        message = L"Unknown Win32 error.";
+    }
+
+    return message;
+}
+
+std::wstring DescribeHResult(HRESULT hr) {
+    if (SUCCEEDED(hr)) {
+        return L"Operation succeeded.";
+    }
+
+    LPWSTR rawMessage = nullptr;
+    const DWORD flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS;
+    const DWORD length = FormatMessageW(
+        flags,
+        nullptr,
+        static_cast<DWORD>(hr),
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        reinterpret_cast<LPWSTR>(&rawMessage),
+        0,
+        nullptr);
+
+    std::wstring message;
+    if (length > 0 && rawMessage != nullptr) {
+        message.assign(rawMessage, length);
+        LocalFree(rawMessage);
+        message = Trim(message);
+    }
+
+    if (message.empty()) {
+        message = L"Unknown HRESULT.";
+    }
+
+    return message;
+}
+
 class StealthApp {
 public:
     explicit StealthApp(HINSTANCE instance)
@@ -116,6 +182,7 @@ public:
 
     bool Initialize();
     int Run();
+    const std::wstring& GetInitializationError() const { return initError_; }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -176,6 +243,7 @@ private:
     RECT webBounds_{};
     size_t selectedTabIndex_ = 0;
     bool isVisible_ = true;
+    std::wstring initError_;
 };
 
 bool StealthApp::Initialize() {
@@ -223,6 +291,8 @@ bool StealthApp::CreateMainWindow() {
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
 
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        const DWORD error = GetLastError();
+        initError_ = L"RegisterClassExW failed (" + Hex32(error) + L"): " + DescribeWin32Error(error);
         return false;
     }
 
@@ -241,6 +311,8 @@ bool StealthApp::CreateMainWindow() {
         this);
 
     if (!hwnd_) {
+        const DWORD error = GetLastError();
+        initError_ = L"CreateWindowExW failed (" + Hex32(error) + L"): " + DescribeWin32Error(error);
         return false;
     }
 
@@ -936,11 +1008,20 @@ LRESULT StealthApp::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const HRESULT coInit = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(coInit)) {
+        std::wstring message = L"CoInitializeEx failed (" + Hex32(static_cast<unsigned long>(coInit)) + L"): " + DescribeHResult(coInit);
+        MessageBoxW(nullptr, message.c_str(), L"stealthAI", MB_ICONERROR);
+        return 1;
+    }
 
     auto app = std::make_unique<StealthApp>(hInstance);
     if (!app->Initialize()) {
-        MessageBoxW(nullptr, L"Failed to initialize stealthAI.", L"stealthAI", MB_ICONERROR);
+        std::wstring message = app->GetInitializationError();
+        if (message.empty()) {
+            message = L"Failed to initialize stealthAI due to an unknown startup error.";
+        }
+        MessageBoxW(nullptr, message.c_str(), L"stealthAI", MB_ICONERROR);
         CoUninitialize();
         return 1;
     }
