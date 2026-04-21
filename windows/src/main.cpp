@@ -186,7 +186,7 @@ public:
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+    LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     bool CreateMainWindow();
     void CreateChromeControls();
@@ -923,19 +923,22 @@ LRESULT CALLBACK StealthApp::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
     if (msg == WM_NCCREATE) {
         auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
         app = reinterpret_cast<StealthApp*>(cs->lpCreateParams);
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+        if (app) {
+            app->hwnd_ = hwnd;
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(app));
+        }
     } else {
         app = reinterpret_cast<StealthApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     }
 
     if (app) {
-        return app->HandleMessage(msg, wParam, lParam);
+        return app->HandleMessage(hwnd, msg, wParam, lParam);
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT StealthApp::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
+LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
         case WM_COMMAND: {
             const int controlId = LOWORD(wParam);
@@ -967,13 +970,13 @@ LRESULT StealthApp::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             HandleHotkey(static_cast<UINT>(wParam));
             return 0;
         case WM_NCHITTEST: {
-            const LRESULT hit = DefWindowProcW(hwnd_, msg, wParam, lParam);
+            const LRESULT hit = DefWindowProcW(hwnd, msg, wParam, lParam);
             if (hit == HTCLIENT) {
                 POINT cursor{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                ScreenToClient(hwnd_, &cursor);
+                ScreenToClient(hwnd, &cursor);
 
                 RECT client{};
-                GetClientRect(hwnd_, &client);
+                GetClientRect(hwnd, &client);
                 const int border = 8;
 
                 if (cursor.x < border && cursor.y < border) return HTTOPLEFT;
@@ -986,8 +989,8 @@ LRESULT StealthApp::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (cursor.x > client.right - border) return HTRIGHT;
 
                 if (cursor.y <= kTitleBarHeight) {
-                    HWND child = ChildWindowFromPointEx(hwnd_, cursor, CWP_SKIPINVISIBLE);
-                    if (child == hwnd_) {
+                    HWND child = ChildWindowFromPointEx(hwnd, cursor, CWP_SKIPINVISIBLE);
+                    if (child == hwnd) {
                         return HTCAPTION;
                     }
                 }
@@ -1002,7 +1005,7 @@ LRESULT StealthApp::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
     }
 
-    return DefWindowProcW(hwnd_, msg, wParam, lParam);
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
 }  // namespace
