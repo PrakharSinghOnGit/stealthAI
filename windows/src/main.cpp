@@ -1,3 +1,5 @@
+#define _WIN32_WINNT 0x0A00   // Windows 10
+#define _WIN32_IE 0x0600
 #define WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
@@ -18,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "Dwmapi.lib")
 #pragma comment(lib, "Shlwapi.lib")
@@ -29,10 +32,10 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr UINT kTitleBarHeight = 42;
-constexpr BYTE kMinAlpha = 26;
+constexpr BYTE kMinAlpha = 8;
 constexpr BYTE kMaxAlpha = 255;
 constexpr BYTE kAlphaStep = 4;
-constexpr BYTE kMaxBlur = 180;
+constexpr BYTE kMaxBlur = 255;
 constexpr BYTE kBlurStep = 12;
 constexpr int kMaxTabs = 10;
 
@@ -289,6 +292,9 @@ private:
     bool isDarkMode_ = false;
     std::wstring initError_;
     COLORREF backgroundColor_ = RGB(255, 255, 255);
+	// In the private section of StealthApp class (around line 294):
+	WNDPROC tabControlOrigProc_ = nullptr;
+	static LRESULT CALLBACK TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 };
 
 bool StealthApp::Initialize() {
@@ -379,6 +385,12 @@ void StealthApp::CreateChromeControls() {
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlIdTabs)),
         instance_,
         nullptr);
+
+	SetWindowLongPtrW(tabControl_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+tabControlOrigProc_ = reinterpret_cast<WNDPROC>(
+    SetWindowLongPtrW(tabControl_, GWLP_WNDPROC,
+        reinterpret_cast<LONG_PTR>(StealthApp::TabControlSubclassProc)));
+
 
     settingsButton_ = CreateWindowExW(
         0,
@@ -602,6 +614,8 @@ void StealthApp::ConfigureWebView(size_t index) {
 }
 
 void StealthApp::ResizeWebViews() {
+    RECT screenBounds = webBounds_;
+    MapWindowPoints(hwnd_, nullptr, reinterpret_cast<LPPOINT>(&screenBounds), 2);
     for (auto& runtime : tabRuntimes_) {
         if (runtime.controller) {
             runtime.controller->put_Bounds(webBounds_);
@@ -879,9 +893,8 @@ void StealthApp::ApplyTheme() {
 
     if (tabControl_) {
         SetWindowTheme(tabControl_, L"", L"");
-        SendMessageW(tabControl_, TCM_SETBKCOLOR, 0, static_cast<LPARAM>(useDark ? RGB(0, 0, 0) : RGB(255, 255, 255)));
-        SendMessageW(tabControl_, TCM_SETTEXTCOLOR, 0, static_cast<LPARAM>(useDark ? RGB(255, 255, 255) : RGB(0, 0, 0)));
         InvalidateRect(tabControl_, nullptr, TRUE);
+	UpdateWindow(tabControl_);
     }
     if (settingsButton_) {
         InvalidateRect(settingsButton_, nullptr, TRUE);
@@ -927,7 +940,7 @@ void StealthApp::ApplyBlurOpacity(BYTE blurOpacity) {
     }
 
     ACCENT_POLICY policy{};
-    policy.AccentState = blurOpacity == 0 ? ACCENT_DISABLED : ACCENT_ENABLE_ACRYLICBLURBEHIND;
+    policy.AccentState = blurOpacity == 0 ? ACCENT_DISABLED : ACCENT_ENABLE_BLURBEHIND;
     policy.AccentFlags = 2;
     policy.GradientColor = (static_cast<unsigned int>(blurOpacity) << 24) | 0x101010;
 
@@ -1085,6 +1098,24 @@ void StealthApp::DrawThemedButton(const DRAWITEMSTRUCT* dis) {
     }
 }
 
+LRESULT CALLBACK StealthApp::TabControlSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    StealthApp* app = reinterpret_cast<StealthApp*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!app) {
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    if (msg == WM_ERASEBKGND) {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        RECT rect{};
+        GetClientRect(hwnd, &rect);
+        SetDCBrushColor(dc, app->backgroundColor_);
+        FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+        return 1;
+    }
+
+    return CallWindowProcW(app->tabControlOrigProc_, hwnd, msg, wParam, lParam);
+}
+
 void StealthApp::DrawThemedTab(const DRAWITEMSTRUCT* dis) {
     if (!dis || !dis->hDC || !tabControl_) {
         return;
@@ -1213,12 +1244,9 @@ LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 if (cursor.x < border) return HTLEFT;
                 if (cursor.x > client.right - border) return HTRIGHT;
 
-                if (cursor.y <= kTitleBarHeight) {
-                    HWND child = ChildWindowFromPointEx(hwnd, cursor, CWP_SKIPINVISIBLE);
-                    if (child == hwnd) {
-                        return HTCAPTION;
-                    }
-                }
+                 if (cursor.y <= static_cast<int>(kTitleBarHeight)) {
+           		return HTCAPTION;
+        	}
             }
             return hit;
         }
@@ -1226,6 +1254,9 @@ LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             UnregisterGlobalHotkeys();
             PostQuitMessage(0);
             return 0;
+	case WM_MOVE:
+    		ResizeWebViews();
+    		return 0;
         default:
             break;
     }
