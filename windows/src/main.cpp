@@ -264,6 +264,8 @@ private:
     void OpenSettingsFile();
     void ReloadSettings();
 
+    void DrawThemedButton(const DRAWITEMSTRUCT* dis);
+
     std::wstring BuildStealthInjectionScript() const;
 
 private:
@@ -283,6 +285,7 @@ private:
     RECT webBounds_{};
     size_t selectedTabIndex_ = 0;
     bool isVisible_ = true;
+    bool isDarkMode_ = false;
     std::wstring initError_;
     COLORREF backgroundColor_ = RGB(255, 255, 255);
 };
@@ -380,7 +383,7 @@ void StealthApp::CreateChromeControls() {
         0,
         L"BUTTON",
         L"Settings",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         0,
         8,
         88,
@@ -394,7 +397,7 @@ void StealthApp::CreateChromeControls() {
         0,
         L"BUTTON",
         L"Reload",
-        WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+        WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
         0,
         8,
         88,
@@ -867,18 +870,22 @@ void StealthApp::ApplyTheme() {
             break;
     }
 
+    isDarkMode_ = useDark;
+
     const BOOL darkFlag = useDark ? TRUE : FALSE;
     constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFlag, sizeof(darkFlag));
 
     if (tabControl_) {
         SetWindowTheme(tabControl_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+        SendMessageW(tabControl_, WM_THEMECHANGED, 0, 0);
+        InvalidateRect(tabControl_, nullptr, TRUE);
     }
     if (settingsButton_) {
-        SetWindowTheme(settingsButton_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+        InvalidateRect(settingsButton_, nullptr, TRUE);
     }
     if (reloadButton_) {
-        SetWindowTheme(reloadButton_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+        InvalidateRect(reloadButton_, nullptr, TRUE);
     }
 
     backgroundColor_ = useDark ? RGB(28, 28, 30) : GetSysColor(COLOR_WINDOW);
@@ -1038,6 +1045,44 @@ std::wstring StealthApp::BuildStealthInjectionScript() const {
     return Utf8ToWide(source);
 }
 
+void StealthApp::DrawThemedButton(const DRAWITEMSTRUCT* dis) {
+    HDC dc = dis->hDC;
+    RECT rect = dis->rcItem;
+
+    const bool isPressed = (dis->itemState & ODS_SELECTED) != 0;
+    const bool isFocused = (dis->itemState & ODS_FOCUS) != 0;
+
+    COLORREF bgColor, textColor, borderColor;
+    if (isDarkMode_) {
+        bgColor       = isPressed ? RGB(60, 60, 62) : RGB(44, 44, 46);
+        textColor     = RGB(255, 255, 255);
+        borderColor   = RGB(80, 80, 82);
+    } else {
+        bgColor       = isPressed ? RGB(200, 200, 200) : RGB(240, 240, 240);
+        textColor     = RGB(0, 0, 0);
+        borderColor   = RGB(173, 173, 173);
+    }
+
+    SetDCBrushColor(dc, bgColor);
+    FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+
+    SetDCBrushColor(dc, borderColor);
+    FrameRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+
+    SetTextColor(dc, textColor);
+    SetBkMode(dc, TRANSPARENT);
+
+    wchar_t text[64]{};
+    GetWindowTextW(dis->hwndItem, text, 64);
+    DrawTextW(dc, text, -1, &rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+    if (isFocused) {
+        RECT focusRect = rect;
+        InflateRect(&focusRect, -3, -3);
+        DrawFocusRect(dc, &focusRect);
+    }
+}
+
 LRESULT CALLBACK StealthApp::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     StealthApp* app = nullptr;
 
@@ -1070,6 +1115,15 @@ LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             if (controlId == kControlIdReload) {
                 ReloadSettings();
                 return 0;
+            }
+            break;
+        }
+        case WM_DRAWITEM: {
+            const auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+            if (dis && dis->CtlType == ODT_BUTTON &&
+                (dis->hwndItem == settingsButton_ || dis->hwndItem == reloadButton_)) {
+                DrawThemedButton(dis);
+                return TRUE;
             }
             break;
         }
