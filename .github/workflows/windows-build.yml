@@ -1,0 +1,37 @@
+name: Build Windows
+
+on:
+  push:
+    branches:
+      - "**"
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Windows release artifact
+        shell: pwsh
+        run: ./windows/scripts/build_release.ps1
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stealthAI-windows
+          path: windows/dist/stealthAI-windows-x64.zip
+          retention-days: 7

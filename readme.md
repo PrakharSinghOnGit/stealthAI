@@ -3,6 +3,7 @@
 StealthAI is a lightweight macOS floating panel app for running multiple web-based AI chats (or any web tabs) in a stealth-style overlay.
 
 It is designed for:
+
 - Fast tab switching across multiple web tools
 - Adjustable transparency and blur for shoulder-surfing protection
 - Keyboard-first control with global hotkeys
@@ -32,7 +33,8 @@ It is designed for:
 - `mac/scripts/build_release.sh` - macOS release build script (creates zip artifact)
 - `windows/src/main.cpp` - native Win32 app with WebView2 and global hotkeys
 - `windows/scripts/build_release.ps1` - Windows release build script (creates zip artifact)
-- `.github/workflows/release.yml` - CI for macOS + Windows artifacts and tagged releases
+- `.github/workflows/windows-build.yml` - CI for Windows artifact only
+- `.github/workflows/macos-build.yml` - CI for macOS artifact only
 
 ## Run Locally
 
@@ -77,16 +79,19 @@ All of these are editable in Settings.
 StealthAI is tuned to reduce unnecessary rendering work while keeping background tabs alive.
 
 Implemented optimizations:
+
 - Only the active tab webview is attached to the visible view hierarchy
 - Background tabs remain loaded and can continue processing
 - Shared web process pool across tabs
 
 Things that still affect heat and battery:
+
 - Heavy websites running scripts in background tabs
 - Strong transparency + blur + grayscale together
 - Video/animation-heavy pages
 
 For best efficiency:
+
 - Keep blur moderate
 - Use grayscale when possible
 - Disable transparent background when not needed
@@ -104,26 +109,21 @@ Output:
 - `mac/dist/stealthAI-macos.zip`
 - `windows/dist/stealthAI-windows-x64.zip` (when built on Windows)
 
-## GitHub Release Automation
+## GitHub Actions (Split by Platform)
 
-The workflow at `.github/workflows/release.yml`:
+Workflows are now separate so you can focus on one platform at a time:
 
-- Triggers on every pushed commit and on pushed tags matching `v*`
-- Builds macOS artifact on `macos-latest`
-- Builds Windows artifact on `windows-latest`
-- On tag push (`v*`): publishes a GitHub release with both zip artifacts
+- `.github/workflows/windows-build.yml` runs only for Windows changes and manual runs
+- `.github/workflows/macos-build.yml` runs only for macOS changes and manual runs
 
-### How to Publish a Release
+Manual runs:
 
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+- **Actions -> Build Windows -> Run workflow**
+- **Actions -> Build macOS -> Run workflow**
 
-Once the workflow finishes, both zip artifacts are attached to the release.
+Tip: add `[skip ci]` to a commit message to skip push-triggered builds.
 
 ## Notes
 
 - This project currently builds unsigned artifacts (`CODE_SIGNING_ALLOWED=NO`) for CI packaging.
 - If you plan to distribute outside development/testing, add proper signing and notarization.
-
