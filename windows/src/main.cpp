@@ -376,7 +376,7 @@ void StealthApp::CreateChromeControls() {
         600,
         28,
         hwnd_,
-        reinterpret_cast<HMENU>(kControlIdTabs),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlIdTabs)),
         instance_,
         nullptr);
 
@@ -390,7 +390,7 @@ void StealthApp::CreateChromeControls() {
         88,
         26,
         hwnd_,
-        reinterpret_cast<HMENU>(kControlIdSettings),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlIdSettings)),
         instance_,
         nullptr);
 
@@ -404,7 +404,7 @@ void StealthApp::CreateChromeControls() {
         88,
         26,
         hwnd_,
-        reinterpret_cast<HMENU>(kControlIdReload),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kControlIdReload)),
         instance_,
         nullptr);
 
@@ -879,8 +879,8 @@ void StealthApp::ApplyTheme() {
 
     if (tabControl_) {
         SetWindowTheme(tabControl_, L"", L"");
-        TabCtrl_SetBkColor(tabControl_, useDark ? RGB(0, 0, 0) : RGB(255, 255, 255));
-        TabCtrl_SetTextColor(tabControl_, useDark ? RGB(255, 255, 255) : RGB(0, 0, 0));
+        SendMessageW(tabControl_, TCM_SETBKCOLOR, 0, static_cast<LPARAM>(useDark ? RGB(0, 0, 0) : RGB(255, 255, 255)));
+        SendMessageW(tabControl_, TCM_SETTEXTCOLOR, 0, static_cast<LPARAM>(useDark ? RGB(255, 255, 255) : RGB(0, 0, 0)));
         InvalidateRect(tabControl_, nullptr, TRUE);
     }
     if (settingsButton_) {
