@@ -32,6 +32,7 @@ A native Win32 build of stealthAI with a small executable footprint and system W
 - Toggle grayscale: `Ctrl+Shift+G`
 - Toggle transparent background: `Ctrl+Shift+T`
 - Reload settings from disk: `Ctrl+Shift+L`
+- Cycle theme mode (System -> Light -> Dark): `Ctrl+Shift+M`
 
 ## Settings
 
@@ -40,6 +41,12 @@ Settings file path:
 `%APPDATA%\StealthAI\settings.ini`
 
 Open it via the app's **Settings** button, edit tabs/visual values, then click **Reload** (or press `Ctrl+Shift+L`).
+
+Theme setting:
+
+- `theme_mode=system` (default, follows Windows app theme)
+- `theme_mode=light`
+- `theme_mode=dark`
 
 ## Local Build (Windows)
 

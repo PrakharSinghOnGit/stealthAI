@@ -7,6 +7,7 @@
 #include <ShlObj.h>
 #include <dwmapi.h>
 #include <commctrl.h>
+#include <uxtheme.h>
 #include <wrl.h>
 #include <WebView2.h>
 
@@ -20,6 +21,7 @@
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "Dwmapi.lib")
 #pragma comment(lib, "Shlwapi.lib")
+#pragma comment(lib, "UxTheme.lib")
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -44,6 +46,7 @@ constexpr UINT kHotkeyIncreaseBlur = 7;
 constexpr UINT kHotkeyToggleGrayscale = 8;
 constexpr UINT kHotkeyToggleTransparent = 9;
 constexpr UINT kHotkeyReloadSettings = 10;
+constexpr UINT kHotkeyToggleTheme = 11;
 
 constexpr int kControlIdSettings = 1001;
 constexpr int kControlIdReload = 1002;
@@ -82,11 +85,18 @@ struct TabConfig {
 };
 
 struct AppSettings {
+    enum class ThemeMode {
+        System,
+        Light,
+        Dark,
+    };
+
     std::vector<TabConfig> tabs;
     BYTE windowAlpha = 230;
     BYTE blurOpacity = 96;
     bool grayscaleEnabled = false;
     bool transparentBackgroundEnabled = true;
+    ThemeMode themeMode = ThemeMode::System;
 };
 
 struct TabRuntime {
@@ -107,6 +117,34 @@ std::wstring Trim(const std::wstring& input) {
     if (begin == std::wstring::npos) return L"";
     const auto end = input.find_last_not_of(L" \t\r\n");
     return input.substr(begin, end - begin + 1);
+}
+
+std::wstring ToLowerWide(std::wstring value) {
+    for (auto& ch : value) {
+        if (ch >= L'A' && ch <= L'Z') {
+            ch = static_cast<wchar_t>(ch - L'A' + L'a');
+        }
+    }
+    return value;
+}
+
+bool IsSystemDarkThemeEnabled() {
+    DWORD value = 1;
+    DWORD size = sizeof(value);
+    const LSTATUS status = RegGetValueW(
+        HKEY_CURRENT_USER,
+        L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+        L"AppsUseLightTheme",
+        RRF_RT_REG_DWORD,
+        nullptr,
+        &value,
+        &size);
+
+    if (status != ERROR_SUCCESS) {
+        return false;
+    }
+
+    return value == 0;
 }
 
 std::wstring Hex32(unsigned long value) {
@@ -220,6 +258,8 @@ private:
     void ApplyStealthModesToAll();
     void ApplyWindowVisuals();
     void ApplyBlurOpacity(BYTE blurOpacity);
+    void ApplyTheme();
+    void CycleThemeMode();
 
     void OpenSettingsFile();
     void ReloadSettings();
@@ -244,6 +284,7 @@ private:
     size_t selectedTabIndex_ = 0;
     bool isVisible_ = true;
     std::wstring initError_;
+    COLORREF backgroundColor_ = RGB(255, 255, 255);
 };
 
 bool StealthApp::Initialize() {
@@ -288,7 +329,7 @@ bool StealthApp::CreateMainWindow() {
     wc.lpfnWndProc = StealthApp::WndProc;
     wc.lpszClassName = className;
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    wc.hbrBackground = nullptr;
 
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
         const DWORD error = GetLastError();
@@ -402,6 +443,7 @@ void StealthApp::RegisterGlobalHotkeys() {
     RegisterHotKey(hwnd_, kHotkeyToggleGrayscale, MOD_CONTROL | MOD_SHIFT, 'G');
     RegisterHotKey(hwnd_, kHotkeyToggleTransparent, MOD_CONTROL | MOD_SHIFT, 'T');
     RegisterHotKey(hwnd_, kHotkeyReloadSettings, MOD_CONTROL | MOD_SHIFT, 'L');
+    RegisterHotKey(hwnd_, kHotkeyToggleTheme, MOD_CONTROL | MOD_SHIFT, 'M');
 }
 
 void StealthApp::UnregisterGlobalHotkeys() {
@@ -415,6 +457,7 @@ void StealthApp::UnregisterGlobalHotkeys() {
     UnregisterHotKey(hwnd_, kHotkeyToggleGrayscale);
     UnregisterHotKey(hwnd_, kHotkeyToggleTransparent);
     UnregisterHotKey(hwnd_, kHotkeyReloadSettings);
+    UnregisterHotKey(hwnd_, kHotkeyToggleTheme);
 }
 
 void StealthApp::HandleHotkey(UINT id) {
@@ -451,6 +494,9 @@ void StealthApp::HandleHotkey(UINT id) {
             break;
         case kHotkeyReloadSettings:
             ReloadSettings();
+            break;
+        case kHotkeyToggleTheme:
+            CycleThemeMode();
             break;
         default:
             break;
@@ -617,6 +663,17 @@ void StealthApp::LoadSettings() {
     settings_.grayscaleEnabled = GetPrivateProfileIntW(L"Visual", L"grayscale", 0, settingsPath_.c_str()) != 0;
     settings_.transparentBackgroundEnabled = GetPrivateProfileIntW(L"Visual", L"transparent_bg", 1, settingsPath_.c_str()) != 0;
 
+    wchar_t themeMode[32]{};
+    GetPrivateProfileStringW(L"Visual", L"theme_mode", L"system", themeMode, 32, settingsPath_.c_str());
+    const std::wstring mode = ToLowerWide(Trim(themeMode));
+    if (mode == L"dark") {
+        settings_.themeMode = AppSettings::ThemeMode::Dark;
+    } else if (mode == L"light") {
+        settings_.themeMode = AppSettings::ThemeMode::Light;
+    } else {
+        settings_.themeMode = AppSettings::ThemeMode::System;
+    }
+
     if (selectedTabIndex_ >= settings_.tabs.size()) {
         selectedTabIndex_ = settings_.tabs.size() - 1;
     }
@@ -633,6 +690,14 @@ void StealthApp::SaveVisualSettings() {
 
     WritePrivateProfileStringW(L"Visual", L"grayscale", settings_.grayscaleEnabled ? L"1" : L"0", settingsPath_.c_str());
     WritePrivateProfileStringW(L"Visual", L"transparent_bg", settings_.transparentBackgroundEnabled ? L"1" : L"0", settingsPath_.c_str());
+
+    const wchar_t* mode = L"system";
+    if (settings_.themeMode == AppSettings::ThemeMode::Light) {
+        mode = L"light";
+    } else if (settings_.themeMode == AppSettings::ThemeMode::Dark) {
+        mode = L"dark";
+    }
+    WritePrivateProfileStringW(L"Visual", L"theme_mode", mode, settingsPath_.c_str());
 }
 
 void StealthApp::EnsureSettingsFileExists() {
@@ -656,7 +721,8 @@ void StealthApp::EnsureSettingsFileExists() {
         L"opacity=230\n"
         L"blur=96\n"
         L"grayscale=0\n"
-        L"transparent_bg=1\n";
+        L"transparent_bg=1\n"
+        L"theme_mode=system\n";
 
     std::wofstream file(settingsPath_);
     file << defaultContent;
@@ -777,8 +843,58 @@ void StealthApp::ApplyStealthModesToAll() {
 }
 
 void StealthApp::ApplyWindowVisuals() {
+    ApplyTheme();
     SetLayeredWindowAttributes(hwnd_, 0, settings_.windowAlpha, LWA_ALPHA);
     ApplyBlurOpacity(settings_.blurOpacity);
+}
+
+void StealthApp::ApplyTheme() {
+    bool useDark = false;
+    switch (settings_.themeMode) {
+        case AppSettings::ThemeMode::Dark:
+            useDark = true;
+            break;
+        case AppSettings::ThemeMode::Light:
+            useDark = false;
+            break;
+        case AppSettings::ThemeMode::System:
+            useDark = IsSystemDarkThemeEnabled();
+            break;
+    }
+
+    const BOOL darkFlag = useDark ? TRUE : FALSE;
+    constexpr DWORD DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    DwmSetWindowAttribute(hwnd_, DWMWA_USE_IMMERSIVE_DARK_MODE, &darkFlag, sizeof(darkFlag));
+
+    if (tabControl_) {
+        SetWindowTheme(tabControl_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+    }
+    if (settingsButton_) {
+        SetWindowTheme(settingsButton_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+    }
+    if (reloadButton_) {
+        SetWindowTheme(reloadButton_, useDark ? L"DarkMode_Explorer" : nullptr, nullptr);
+    }
+
+    backgroundColor_ = useDark ? RGB(28, 28, 30) : GetSysColor(COLOR_WINDOW);
+    InvalidateRect(hwnd_, nullptr, TRUE);
+}
+
+void StealthApp::CycleThemeMode() {
+    switch (settings_.themeMode) {
+        case AppSettings::ThemeMode::System:
+            settings_.themeMode = AppSettings::ThemeMode::Light;
+            break;
+        case AppSettings::ThemeMode::Light:
+            settings_.themeMode = AppSettings::ThemeMode::Dark;
+            break;
+        case AppSettings::ThemeMode::Dark:
+            settings_.themeMode = AppSettings::ThemeMode::System;
+            break;
+    }
+
+    ApplyTheme();
+    SaveVisualSettings();
 }
 
 void StealthApp::ApplyBlurOpacity(BYTE blurOpacity) {
@@ -966,6 +1082,14 @@ LRESULT StealthApp::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         case WM_SIZE:
             LayoutControls();
             return 0;
+        case WM_ERASEBKGND: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            RECT rect{};
+            GetClientRect(hwnd, &rect);
+            SetDCBrushColor(dc, backgroundColor_);
+            FillRect(dc, &rect, reinterpret_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+            return 1;
+        }
         case WM_HOTKEY:
             HandleHotkey(static_cast<UINT>(wParam));
             return 0;
