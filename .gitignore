@@ -1,0 +1,11 @@
+dist
+build
+
+scripts/unzip_and_run.sh
+
+mac/build/
+mac/dist/
+windows/build/
+windows/dist/
+windows/.webview2sdk/
+.DS_Store

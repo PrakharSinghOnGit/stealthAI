@@ -32,3 +32,9 @@ class StealthTitleBarView: NSView {
         window?.performDrag(with: event)
     }
 }
+
+class ClickThroughVisualEffectView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        return nil
+    }
+}

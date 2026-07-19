@@ -1,0 +1,129 @@
+# StealthAI
+
+StealthAI is a lightweight macOS floating panel app for running multiple web-based AI chats (or any web tabs) in a stealth-style overlay.
+
+It is designed for:
+
+- Fast tab switching across multiple web tools
+- Adjustable transparency and blur for shoulder-surfing protection
+- Keyboard-first control with global hotkeys
+- Background tab continuity (tabs keep running when not selected)
+
+## Features
+
+- Floating non-activating panel
+- Multi-tab webview workspace (up to 10 tabs)
+- Global hotkeys for panel visibility, tab switch, visual controls, and refresh
+- Adjustable window opacity
+- Adjustable blur overlay intensity
+- Optional grayscale mode
+- Optional transparent page background mode
+- Settings UI for tab list and editable hotkeys
+- Build + release automation for GitHub Releases
+
+## Requirements
+
+- macOS
+- Xcode (with command line tools)
+
+## Project Structure
+
+- `mac/stealthAI/AppDelegate.swift` - macOS app logic, hotkeys, settings, webview lifecycle
+- `mac/stealthAI/StealthPanel.swift` - macOS panel and click-through blur effect view
+- `mac/scripts/build_release.sh` - macOS release build script (creates zip artifact)
+- `windows/src/main.cpp` - native Win32 app with WebView2 and global hotkeys
+- `windows/scripts/build_release.ps1` - Windows release build script (creates zip artifact)
+- `.github/workflows/windows-build.yml` - CI for Windows artifact only
+- `.github/workflows/macos-build.yml` - CI for macOS artifact only
+
+## Run Locally
+
+Use Xcode:
+
+1. Open `stealthAI.xcodeproj`
+2. Select scheme `stealthAI`
+3. Build and run
+
+Or use terminal:
+
+```bash
+xcodebuild -project mac/stealthAI.xcodeproj -scheme stealthAI -configuration Debug build CODE_SIGNING_ALLOWED=NO
+```
+
+### Windows
+
+Native Win32 implementation using WebView2 runtime.
+
+Run on Windows PowerShell:
+
+```powershell
+./windows/scripts/build_release.ps1
+```
+
+## Default Hotkeys
+
+- Toggle panel: `cmd+shift+space`
+- Switch tab: `cmd+shift+tab`
+- Refresh current tab: `cmd+shift+r`
+- Decrease opacity: `cmd+shift+[`
+- Increase opacity: `cmd+shift+]`
+- Decrease blur: `cmd+shift+;`
+- Increase blur: `cmd+shift+'`
+- Toggle grayscale: `cmd+shift+g`
+- Toggle transparent background: `cmd+shift+t`
+
+All of these are editable in Settings.
+
+## Performance Notes
+
+StealthAI is tuned to reduce unnecessary rendering work while keeping background tabs alive.
+
+Implemented optimizations:
+
+- Only the active tab webview is attached to the visible view hierarchy
+- Background tabs remain loaded and can continue processing
+- Shared web process pool across tabs
+
+Things that still affect heat and battery:
+
+- Heavy websites running scripts in background tabs
+- Strong transparency + blur + grayscale together
+- Video/animation-heavy pages
+
+For best efficiency:
+
+- Keep blur moderate
+- Use grayscale when possible
+- Disable transparent background when not needed
+
+## Build Release Artifact
+
+The script below builds a Release app and produces a zip file:
+
+```bash
+./mac/scripts/build_release.sh
+```
+
+Output:
+
+- `mac/dist/stealthAI-macos.zip`
+- `windows/dist/stealthAI-windows-x64.zip` (when built on Windows)
+
+## GitHub Actions (Split by Platform)
+
+Workflows are now separate so you can focus on one platform at a time:
+
+- `.github/workflows/windows-build.yml` runs only for Windows changes and manual runs
+- `.github/workflows/macos-build.yml` runs only for macOS changes and manual runs
+
+Manual runs:
+
+- **Actions -> Build Windows -> Run workflow**
+- **Actions -> Build macOS -> Run workflow**
+
+Tip: add `[skip ci]` to a commit message to skip push-triggered builds.
+
+## Notes
+
+- This project currently builds unsigned artifacts (`CODE_SIGNING_ALLOWED=NO`) for CI packaging.
+- If you plan to distribute outside development/testing, add proper signing and notarization.
